@@ -1,3 +1,6 @@
+git add .
+git commit -m "Connected to Neon Postgres, tested owner summary"
+git push
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
 import os
