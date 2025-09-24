@@ -1,5 +1,7 @@
 # bakery/views.py
+from django.http import JsonResponse
 from rest_framework.viewsets import ModelViewSet
+
 from .models import Outlet, Product, Batch, Sale
 from .serializers import (
     OutletSerializer, ProductSerializer, BatchSerializer, SaleSerializer
@@ -20,3 +22,7 @@ class BatchViewSet(ModelViewSet):
 class SaleViewSet(ModelViewSet):
     queryset = Sale.objects.all().order_by("-billed_at")
     serializer_class = SaleSerializer
+
+# ---- Health check ----
+def health_check(request):
+    return JsonResponse({"status": "ok"})
