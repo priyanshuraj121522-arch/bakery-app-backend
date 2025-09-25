@@ -12,116 +12,89 @@ from .serializers import (
 from .permissions import IsOwnerOrOutletUser
 
 
-# --- helpers ---------------------------------------------------------------
+# ---------------- helpers ----------------
 
 def _user_is_owner(user) -> bool:
     return user.is_authenticated and user.groups.filter(name="owner").exists()
 
 def _user_outlet(user):
-    """Return Outlet assigned via UserProfile, or None."""
+    """
+    Return Outlet assigned via UserProfile, or None.
+    """
     try:
         return UserProfile.objects.select_related("outlet").get(user=user).outlet
     except UserProfile.DoesNotExist:
         return None
 
 
-# --- ViewSets --------------------------------------------------------------
+# ---------------- ViewSets ----------------
 
 class OutletViewSet(ModelViewSet):
-    """
-    Owners: full access to all outlets.
-    Managers/Cashiers: can only see their assigned outlet (read-only by default).
-    """
+    # Base queryset is REQUIRED so DRF router can infer the basename
+    queryset = Outlet.objects.all()
     serializer_class = OutletSerializer
     permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
 
     def get_queryset(self):
-        qs = Outlet.objects.all().order_by("id")
         user = self.request.user
         if _user_is_owner(user):
-            return qs
+            return Outlet.objects.all().order_by("id")
+
         outlet = _user_outlet(user)
-        return qs.filter(id=outlet_id) if (outlet and (outlet_id := outlet.id)) else qs.none()
-
-    # non-owners should not create/delete outlets through API
-    def perform_create(self, serializer):
-        if not _user_is_owner(self.request.user):
-            raise PermissionDenied("Only owners can create outlets.")
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        if not _user_is_owner(self.request.user):
-            raise PermissionDenied("Only owners can delete outlets.")
-        return super().perform_destroy(instance)
+        if not outlet:
+            return Outlet.objects.none()
+        return Outlet.objects.filter(id=outlet.id).order_by("id")
 
 
 class ProductViewSet(ModelViewSet):
-    """
-    Products are global (not per-outlet) in this backend.
-    Require login; owners/managers typically edit; cashiers usually read.
-    Adjust later if you want stricter rules.
-    """
-    queryset = Product.objects.all().order_by("id")
+    queryset = Product.objects.all()
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
+
+    def get_queryset(self):
+        user = self.request.user
+        if _user_is_owner(user):
+            return Product.objects.all().order_by("id")
+
+        outlet = _user_outlet(user)
+        if not outlet:
+            return Product.objects.none()
+        # If products are global, keep all; if they’re outlet-scoped, filter here.
+        return Product.objects.all().order_by("id")
 
 
 class BatchViewSet(ModelViewSet):
-    """
-    Batches are global for now. Require auth.
-    """
-    queryset = Batch.objects.all().order_by("-produced_on")
+    queryset = Batch.objects.all()
     serializer_class = BatchSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
+
+    def get_queryset(self):
+        user = self.request.user
+        if _user_is_owner(user):
+            return Batch.objects.all().order_by("-produced_on")
+
+        outlet = _user_outlet(user)
+        if not outlet:
+            return Batch.objects.none()
+        return Batch.objects.filter(recipe__product__outlet=outlet).order_by("-produced_on")
 
 
 class SaleViewSet(ModelViewSet):
-    """
-    Owners: all sales across outlets.
-    Managers/Cashiers: only their outlet’s sales.
-    On create/update by non-owners, the sale's outlet is forced to their assigned outlet.
-    """
+    queryset = Sale.objects.all()
     serializer_class = SaleSerializer
     permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
 
     def get_queryset(self):
-        qs = Sale.objects.all().order_by("-billed_at")
         user = self.request.user
         if _user_is_owner(user):
-            return qs
-        outlet = _user_outlet(user)
-        return qs.filter(outlet_id=outlet.id) if outlet else qs.none()
+            return Sale.objects.all().order_by("-billed_at")
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        if _user_is_owner(user):
-            # owner may post with any outlet in payload
-            serializer.save()
-            return
         outlet = _user_outlet(user)
         if not outlet:
-            raise PermissionDenied("No outlet assigned to your profile.")
-        # force outlet to the user’s outlet
-        serializer.save(outlet=outlet)
-
-    def perform_update(self, serializer):
-        user = self.request.user
-        if _user_is_owner(user):
-            serializer.save()
-            return
-        outlet = _user_outlet(user)
-        if not outlet:
-            raise PermissionDenied("No outlet assigned to your profile.")
-        # prevent cross-outlet changes
-        instance_outlet_id = serializer.instance.outlet_id
-        if instance_outlet_id != outlet.id:
-            raise PermissionDenied("You cannot modify sales from another outlet.")
-        # also force outlet to remain the same
-        serializer.save(outlet=outlet)
+            return Sale.objects.none()
+        return Sale.objects.filter(outlet=outlet).order_by("-billed_at")
 
 
-# ---- Health check (public, lightweight) -----------------------------------
-
+# ---- Health check (public, lightweight) ----
 def health_check(request):
-    # Public endpoint used by Railway/monitors
     return JsonResponse({"status": "ok"})
