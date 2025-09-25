@@ -20,16 +20,52 @@ from .permissions import IsOwnerOrOutletUser
 def _user_is_owner(user) -> bool:
     return user.is_authenticated and user.groups.filter(name="owner").exists()
 
-
 def _user_outlet(user):
-    """
-    Return the Outlet assigned to the user via UserProfile, or None.
-    """
     try:
         return UserProfile.objects.select_related("outlet").get(user=user).outlet
     except UserProfile.DoesNotExist:
         return None
 
+
+class SaleViewSet(ModelViewSet):
+    serializer_class = SaleSerializer
+    permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
+
+    def get_queryset(self):
+        """
+        Owners: see all sales.
+        Others: only see sales for their assigned outlet.
+        """
+        qs = Sale.objects.all().order_by("-billed_at")
+        user = self.request.user
+        if _user_is_owner(user):
+            return qs
+        outlet = _user_outlet(user)
+        # If no profile/outlet, show nothing
+        if not outlet:
+            return qs.none()
+        return qs.filter(outlet_id=outlet.id)
+
+    def perform_create(self, serializer):
+        outlet = _user_outlet(self.request.user)
+        if not outlet:
+            raise PermissionDenied("No outlet assigned to your profile.")
+        serializer.save(outlet=outlet)
+
+    def perform_update(self, serializer):
+        outlet = _user_outlet(self.request.user)
+        if not outlet:
+            raise PermissionDenied("No outlet assigned to your profile.")
+
+        instance = serializer.instance
+        if instance.outlet_id != outlet.id:
+            raise PermissionDenied("You can only modify sales for your own outlet.")
+
+        # Prevent switching to a different outlet in updates
+        new_outlet = serializer.validated_data.get("outlet")
+        if new_outlet and new_outlet.id != outlet.id:
+            raise PermissionDenied("Cannot change sale to another outlet.")
+        serializer.save()
 
 # -------------------- ViewSets --------------------
 
