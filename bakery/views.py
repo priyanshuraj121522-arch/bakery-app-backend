@@ -1,11 +1,11 @@
 # bakery/views.py
 from django.http import JsonResponse
 from django.contrib.auth.models import Group
+
 from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Outlet, Product, Batch, Sale, UserProfile
@@ -15,14 +15,15 @@ from .serializers import (
 from .permissions import IsOwnerOrOutletUser
 
 
-# ---------------- helpers ----------------
+# -------------------- helpers --------------------
 
 def _user_is_owner(user) -> bool:
     return user.is_authenticated and user.groups.filter(name="owner").exists()
 
+
 def _user_outlet(user):
     """
-    Return Outlet assigned via UserProfile, or None.
+    Return the Outlet assigned to the user via UserProfile, or None.
     """
     try:
         return UserProfile.objects.select_related("outlet").get(user=user).outlet
@@ -30,111 +31,80 @@ def _user_outlet(user):
         return None
 
 
-# ---------------- ViewSets ----------------
+# -------------------- ViewSets --------------------
 
 class OutletViewSet(ModelViewSet):
-    # Base queryset is REQUIRED so DRF router can infer the basename
-    queryset = Outlet.objects.all()
-    serializer_class = OutletSerializer
+    """
+    Owners see all outlets. Non-owners only see their own outlet.
+    """
     permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
+    queryset = Outlet.objects.all().order_by("id")
+    serializer_class = OutletSerializer
 
     def get_queryset(self):
         user = self.request.user
         if _user_is_owner(user):
-            return Outlet.objects.all().order_by("id")
-
+            return self.queryset
         outlet = _user_outlet(user)
-        if not outlet:
-            return Outlet.objects.none()
-        return Outlet.objects.filter(id=outlet.id).order_by("id")
+        return self.queryset.filter(id=outlet.id) if outlet else self.queryset.none()
 
 
 class ProductViewSet(ModelViewSet):
-    queryset = Product.objects.all()
+    """
+    Products are global (not tied to outlet). Any authenticated user can access.
+    """
+    permission_classes = [IsAuthenticated]
+    queryset = Product.objects.all().order_by("id")
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
-
-    def get_queryset(self):
-        user = self.request.user
-        if _user_is_owner(user):
-            return Product.objects.all().order_by("id")
-
-        outlet = _user_outlet(user)
-        if not outlet:
-            return Product.objects.none()
-        # If products are global, keep all; if they’re outlet-scoped, filter here.
-        return Product.objects.all().order_by("id")
 
 
 class BatchViewSet(ModelViewSet):
-    queryset = Batch.objects.all()
-    serializer_class = BatchSerializer
+    """
+    Owners see all batches. Non-owners only see batches for their outlet.
+    """
     permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
+    queryset = Batch.objects.select_related("outlet").all().order_by("-produced_on")
+    serializer_class = BatchSerializer
 
     def get_queryset(self):
         user = self.request.user
         if _user_is_owner(user):
-            return Batch.objects.all().order_by("-produced_on")
-
+            return self.queryset
         outlet = _user_outlet(user)
-        if not outlet:
-            return Batch.objects.none()
-        return Batch.objects.filter(recipe__product__outlet=outlet).order_by("-produced_on")
+        return self.queryset.filter(outlet=outlet) if outlet else self.queryset.none()
 
 
-# --- replace ONLY the SaleViewSet class in bakery/views.py with this ---
 class SaleViewSet(ModelViewSet):
     """
-    Owners: full access.
-    Managers/Cashiers: limited to their own outlet; outlet & cashier are enforced.
+    Owners see all sales. Non-owners only see / create / edit sales for their outlet.
     """
+    permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
+    queryset = Sale.objects.select_related("outlet").all().order_by("-billed_at")
     serializer_class = SaleSerializer
 
     def get_queryset(self):
-        qs = Sale.objects.select_related("outlet", "cashier").order_by("-billed_at")
         user = self.request.user
         if _user_is_owner(user):
-            return qs
+            return self.queryset
         outlet = _user_outlet(user)
-        if outlet is None:
-            return Sale.objects.none()
-        return qs.filter(outlet=outlet)
+        return self.queryset.filter(outlet=outlet) if outlet else self.queryset.none()
 
     def perform_create(self, serializer):
-        user = self.request.user
-        # Owners can create anywhere
-        if _user_is_owner(user):
-            serializer.save()
-            return
-
-        outlet = _user_outlet(user)
-        if outlet is None:
-            raise PermissionDenied("You are not assigned to an outlet.")
-
-        # If client provided an outlet, it must match their outlet
-        provided = serializer.validated_data.get("outlet")
-        if provided and provided.id != outlet.id:
-            raise PermissionDenied("You can only create sales for your own outlet.")
-
-        # Enforce outlet & cashier
-        serializer.save(outlet=outlet, cashier=user)
+        outlet = _user_outlet(self.request.user)
+        if not outlet:
+            raise PermissionDenied("No outlet assigned to your profile.")
+        serializer.save(outlet=outlet)
 
     def perform_update(self, serializer):
-        user = self.request.user
-        instance = self.get_object()
+        outlet = _user_outlet(self.request.user)
+        if not outlet:
+            raise PermissionDenied("No outlet assigned to your profile.")
 
-        if _user_is_owner(user):
-            serializer.save()
-            return
-
-        outlet = _user_outlet(user)
-        if outlet is None:
-            raise PermissionDenied("You are not assigned to an outlet.")
-
+        instance = serializer.instance
         if instance.outlet_id != outlet.id:
             raise PermissionDenied("You can only modify sales for your own outlet.")
 
-        # Prevent switching to a different outlet in updates
+        # Prevent changing outlet on update
         new_outlet = serializer.validated_data.get("outlet")
         if new_outlet and new_outlet.id != outlet.id:
             raise PermissionDenied("Cannot change sale to another outlet.")
@@ -142,32 +112,28 @@ class SaleViewSet(ModelViewSet):
         serializer.save()
 
 
+# -------------------- simple endpoints --------------------
 
-# ---- Health check (public, lightweight) ----
-def health_check(request):
-    return JsonResponse({"status": "ok"})
-
-
-# ---- Me (authenticated) ----
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
     """
-    Return basic info about the current user, their groups, and assigned outlet (via UserProfile).
+    Returns basic info about the current user and their assigned outlet.
     """
-    groups = list(request.user.groups.values_list("name", flat=True))
-    profile = UserProfile.objects.select_related("outlet").filter(user=request.user).first()
-    outlet = None
-    if profile and profile.outlet:
-        outlet = {
-            "id": profile.outlet.id,
-            "name": profile.outlet.name,
-        }
-
+    user = request.user
+    outlet = _user_outlet(user)
+    groups = list(user.groups.values_list("name", flat=True))
     return Response({
-        "id": request.user.id,
-        "username": request.user.username,
-        "email": request.user.email,
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "full_name": user.get_full_name(),
         "groups": groups,
-        "outlet": outlet,
+        "outlet": outlet.name if outlet else None,
+        "outlet_id": outlet.id if outlet else None,
+        "is_owner": "owner" in groups,
     })
+
+
+def health_check(request):
+    return JsonResponse({"status": "ok"})
