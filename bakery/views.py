@@ -79,20 +79,65 @@ class BatchViewSet(ModelViewSet):
         return Batch.objects.filter(recipe__product__outlet=outlet).order_by("-produced_on")
 
 
+# --- replace ONLY the SaleViewSet class in bakery/views.py with this ---
 class SaleViewSet(ModelViewSet):
-    queryset = Sale.objects.all()
+    """
+    Owners: full access.
+    Managers/Cashiers: limited to their own outlet; outlet & cashier are enforced.
+    """
     serializer_class = SaleSerializer
-    permission_classes = [IsAuthenticated, IsOwnerOrOutletUser]
 
     def get_queryset(self):
+        qs = Sale.objects.select_related("outlet", "cashier").order_by("-billed_at")
         user = self.request.user
         if _user_is_owner(user):
-            return Sale.objects.all().order_by("-billed_at")
+            return qs
+        outlet = _user_outlet(user)
+        if outlet is None:
+            return Sale.objects.none()
+        return qs.filter(outlet=outlet)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        # Owners can create anywhere
+        if _user_is_owner(user):
+            serializer.save()
+            return
 
         outlet = _user_outlet(user)
-        if not outlet:
-            return Sale.objects.none()
-        return Sale.objects.filter(outlet=outlet).order_by("-billed_at")
+        if outlet is None:
+            raise PermissionDenied("You are not assigned to an outlet.")
+
+        # If client provided an outlet, it must match their outlet
+        provided = serializer.validated_data.get("outlet")
+        if provided and provided.id != outlet.id:
+            raise PermissionDenied("You can only create sales for your own outlet.")
+
+        # Enforce outlet & cashier
+        serializer.save(outlet=outlet, cashier=user)
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        instance = self.get_object()
+
+        if _user_is_owner(user):
+            serializer.save()
+            return
+
+        outlet = _user_outlet(user)
+        if outlet is None:
+            raise PermissionDenied("You are not assigned to an outlet.")
+
+        if instance.outlet_id != outlet.id:
+            raise PermissionDenied("You can only modify sales for your own outlet.")
+
+        # Prevent switching to a different outlet in updates
+        new_outlet = serializer.validated_data.get("outlet")
+        if new_outlet and new_outlet.id != outlet.id:
+            raise PermissionDenied("Cannot change sale to another outlet.")
+
+        serializer.save()
+
 
 
 # ---- Health check (public, lightweight) ----

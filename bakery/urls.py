@@ -10,7 +10,8 @@ router = DefaultRouter()
 router.register("outlets", OutletViewSet)
 router.register("products", ProductViewSet)
 router.register("batches", BatchViewSet)
-router.register("sales", SaleViewSet)
+router.register("sales", SaleViewSet, basename="sale")
+
 
 urlpatterns = [
     path("", include(router.urls)),
