@@ -1,39 +1,40 @@
 from django.http import JsonResponse
 from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 
 from .models import Outlet, Product, Batch, Sale
 from .serializers import (
     OutletSerializer, ProductSerializer, BatchSerializer, SaleSerializer
 )
+from .permissions import IsOwner, IsManagerOrOwner, IsCashierOrAbove
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
 
 
 class OutletViewSet(ModelViewSet):
     queryset = Outlet.objects.all().order_by("id")
     serializer_class = OutletSerializer
-    # Public can read, only authenticated can write
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    # Only Owners can manage outlets; public can read
+    permission_classes = [IsAuthenticatedOrReadOnly | IsOwner]
 
 
 class ProductViewSet(ModelViewSet):
     queryset = Product.objects.all().order_by("id")
     serializer_class = ProductSerializer
-    # Public can read, only authenticated can write
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    # Public can read; only Owner can add/update/delete products
+    permission_classes = [IsAuthenticatedOrReadOnly | IsOwner]
 
 
 class BatchViewSet(ModelViewSet):
     queryset = Batch.objects.all().order_by("-produced_on")
     serializer_class = BatchSerializer
-    # Only authenticated users (staff) can access
-    permission_classes = [IsAuthenticated]
+    # Managers and Owners can manage batches
+    permission_classes = [IsManagerOrOwner]
 
 
 class SaleViewSet(ModelViewSet):
     queryset = Sale.objects.all().order_by("-billed_at")
     serializer_class = SaleSerializer
-    # Only authenticated users (cashier/manager/owner) can access
-    permission_classes = [IsAuthenticated]
+    # Cashiers, Managers, and Owners can manage sales
+    permission_classes = [IsCashierOrAbove]
 
 
 # ---- Health check (public, lightweight) ----
