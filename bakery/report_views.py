@@ -10,19 +10,23 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from .models import Sale, Wastage
 
+
 def money(x: Decimal) -> str:
+    """Format a Decimal as a string with 2 decimal places."""
     if x is None:
         x = Decimal("0")
     return str(Decimal(x).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
+
 def _parse_date(d: str):
-    # expects 'YYYY-MM-DD'
+    """Helper to parse YYYY-MM-DD into a Python date object."""
     return datetime.strptime(d, "%Y-%m-%d").date()
+
 
 @extend_schema(
     parameters=[
         OpenApiParameter(name="from", description="Start date (YYYY-MM-DD)", required=False, type=str),
-        OpenApiParameter(name="to",   description="End date (YYYY-MM-DD)", required=False, type=str),
+        OpenApiParameter(name="to", description="End date (YYYY-MM-DD)", required=False, type=str),
     ],
     responses={200: dict},
 )
@@ -37,25 +41,27 @@ def owner_summary(request):
     # --- Date range handling ---
     today_local = timezone.localdate()
     date_from_str = request.query_params.get("from")
-    date_to_str   = request.query_params.get("to")
+    date_to_str = request.query_params.get("to")
 
     if date_from_str and date_to_str:
         date_from = _parse_date(date_from_str)
-        date_to   = _parse_date(date_to_str)
+        date_to = _parse_date(date_to_str)
     elif date_from_str and not date_to_str:
         date_from = _parse_date(date_from_str)
-        date_to   = date_from
+        date_to = date_from
     elif not date_from_str and date_to_str:
-        date_to   = _parse_date(date_to_str)
+        date_to = _parse_date(date_to_str)
         date_from = date_to
     else:
         # default: today
         date_from = today_local
-        date_to   = today_local
+        date_to = today_local
 
     # --- Sales aggregates ---
-    sales_qs = Sale.objects.filter(billed_at__date__gte=date_from,
-                                   billed_at__date__lte=date_to)
+    sales_qs = Sale.objects.filter(
+        billed_at__date__gte=date_from,
+        billed_at__date__lte=date_to,
+    )
 
     agg = sales_qs.aggregate(
         subtotal=Coalesce(Sum("subtotal"), Decimal("0.00")),
@@ -69,10 +75,11 @@ def owner_summary(request):
     avg_bill = (Decimal(agg["total"]) / bills) if bills else Decimal("0.00")
 
     # --- Outlet leaderboard (by total sales) ---
-    by_outlet_qs = (sales_qs
-        .values("outlet__name")
+    by_outlet_qs = (
+        sales_qs.values("outlet__name")
         .annotate(sales=Coalesce(Sum("total"), Decimal("0.00")))
-        .order_by("-sales"))
+        .order_by("-sales")
+    )
 
     by_outlet = [
         {"outlet": row["outlet__name"], "sales": money(row["sales"])}
@@ -81,12 +88,15 @@ def owner_summary(request):
 
     # --- Wastage (optional; returns totals if you use the Wastage model) ---
     try:
-        wastage_qs = Wastage.objects.filter(noted_at__date__gte=date_from,
-                                            noted_at__date__lte=date_to)
+        wastage_qs = Wastage.objects.filter(
+            noted_at__date__gte=date_from,
+            noted_at__date__lte=date_to,
+        )
         wastage_qty = wastage_qs.aggregate(qty=Coalesce(Sum("qty"), 0.0))["qty"] or 0.0
     except Exception:
-        wastage_qty = 0.0  # if Wastage model not present or no data yet
+        wastage_qty = 0.0  # fallback if Wastage model not used or no data yet
 
+    # --- Response payload ---
     data = {
         "date_from": str(date_from),
         "date_to": str(date_to),
@@ -97,7 +107,6 @@ def owner_summary(request):
         "bills": bills,
         "avg_bill": money(avg_bill),
         "by_outlet": by_outlet,
-        # You can later convert wastage to a % of production/sales when you track costs/qtys tightly.
         "wastage_qty": wastage_qty,
     }
     return Response(data)
