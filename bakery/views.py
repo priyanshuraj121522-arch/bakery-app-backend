@@ -4,6 +4,9 @@ from django.contrib.auth.models import Group
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from .models import Outlet, Product, Batch, Sale, UserProfile
 from .serializers import (
@@ -143,3 +146,28 @@ class SaleViewSet(ModelViewSet):
 # ---- Health check (public, lightweight) ----
 def health_check(request):
     return JsonResponse({"status": "ok"})
+
+
+# ---- Me (authenticated) ----
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def me(request):
+    """
+    Return basic info about the current user, their groups, and assigned outlet (via UserProfile).
+    """
+    groups = list(request.user.groups.values_list("name", flat=True))
+    profile = UserProfile.objects.select_related("outlet").filter(user=request.user).first()
+    outlet = None
+    if profile and profile.outlet:
+        outlet = {
+            "id": profile.outlet.id,
+            "name": profile.outlet.name,
+        }
+
+    return Response({
+        "id": request.user.id,
+        "username": request.user.username,
+        "email": request.user.email,
+        "groups": groups,
+        "outlet": outlet,
+    })

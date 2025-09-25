@@ -2,7 +2,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    OutletViewSet, ProductViewSet, BatchViewSet, SaleViewSet, health_check
+    OutletViewSet, ProductViewSet, BatchViewSet, SaleViewSet, health_check,
+    me,
 )
 from .report_views import owner_summary
 
@@ -17,4 +18,5 @@ urlpatterns = [
     path("", include(router.urls)),
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("health/", health_check, name="health-check"),  # /api/health/
+    path("me/", me, name="me"),
 ]
