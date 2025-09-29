@@ -17,6 +17,8 @@ def _csv(env_name: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 ALLOWED_HOSTS = _csv("ALLOWED_HOSTS")
+
+# You can also set CSRF_TRUSTED_ORIGINS via env, but we’ll merge with defaults below
 CSRF_TRUSTED_ORIGINS = _csv("CSRF_TRUSTED_ORIGINS")
 
 # --- Installed apps (admin enabled) ---
@@ -110,9 +112,13 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # --- CORS ---
-# Default: open in dev. In prod, set CORS_ALLOW_ALL=0 and FRONTEND_ORIGIN to your UI.
+# Default: open in dev. In prod, set CORS_ALLOW_ALL=0 and use FRONTEND_ORIGIN.
 CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL", "1") == "1"
 CORS_ALLOW_CREDENTIALS = True
+
+# Make preflights permissive and predictable
+CORS_ALLOW_HEADERS = ["*"]
+CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 if not CORS_ALLOW_ALL_ORIGINS:
     FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "")
@@ -120,6 +126,16 @@ if not CORS_ALLOW_ALL_ORIGINS:
         "http://127.0.0.1:3000",
         "http://localhost:3000",
     ] + ([FRONTEND_ORIGIN] if FRONTEND_ORIGIN else [])
+
+# --- CSRF trusted origins ---
+_default_csrf = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    # Your Railway backend (scheme required)
+    "https://bakery-app-backend-production.up.railway.app",
+]
+# merge env-provided with defaults, dedup
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS + _default_csrf))
 
 # --- DRF, JWT & API schema ---
 REST_FRAMEWORK = {
@@ -132,7 +148,6 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
-
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(os.getenv("JWT_ACCESS_MIN", "60"))),
