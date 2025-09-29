@@ -24,5 +24,5 @@ urlpatterns = [
     path("", include(router.urls)),
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("health/", health_check, name="health-check"),  # /api/health/
-    path("me/", me, name="me"),
+    path("me/", me, name="me"),  # /api/me/
 ]
