@@ -90,3 +90,22 @@ class StockLedger(models.Model):
     ref_table = models.CharField(max_length=50)
     ref_id    = models.IntegerField()
     created_at= models.DateTimeField(auto_now_add=True)
+# --- User ↔ Outlet link for access scoping ---
+from django.contrib.auth import get_user_model
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(get_user_model(), on_delete=models.CASCADE, related_name="profile")
+    # Owner can be null (owner sees all outlets). For managers/cashiers set the outlet they belong to.
+    outlet = models.ForeignKey(Outlet, null=True, blank=True, on_delete=models.SET_NULL, related_name="users")
+
+    def __str__(self):
+        who = self.user.username
+        where = self.outlet.name if self.outlet else "ALL (owner)"
+        return f"{who} → {where}"
+
+@receiver(post_save, sender=get_user_model())
+def create_user_profile(sender, instance, created, **kwargs):
+    if created and not hasattr(instance, "profile"):
+        UserProfile.objects.create(user=instance)
