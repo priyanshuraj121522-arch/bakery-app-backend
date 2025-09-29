@@ -8,8 +8,7 @@ from rest_framework.response import Response
 def me(request):
     """
     Return the currently authenticated user.
-    Requires a valid JWT access token in the Authorization header:
-    Authorization: Bearer <access_token>
+    Requires: Authorization: Bearer <access_token>
     """
     user = request.user
     return Response({
@@ -21,8 +20,4 @@ def me(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_check(request):
-    """
-    Simple health check endpoint.
-    Useful for frontend / API tests.
-    """
     return Response({"status": "ok"})
