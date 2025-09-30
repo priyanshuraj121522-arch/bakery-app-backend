@@ -32,21 +32,38 @@ class SaleItemWriteSerializer(serializers.Serializer):
 
 class SaleItemReadSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
+
     class Meta:
         model = SaleItem
-        fields = ["id", "product", "product_name", "qty", "unit_price", "tax_pct"]
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "qty",
+            "unit_price",
+            "tax_pct",
+        ]
+
 
 class SaleSerializer(serializers.ModelSerializer):
-    # read
     items = SaleItemReadSerializer(many=True, read_only=True)
-    # write
     write_items = SaleItemWriteSerializer(many=True, write_only=True, required=True)
+    outlet_detail = OutletSerializer(source="outlet", read_only=True)
 
     class Meta:
         model = Sale
         fields = [
-            "id", "outlet", "billed_at", "subtotal", "tax", "discount", "total",
-            "payment_mode", "items", "write_items"
+            "id",
+            "outlet",
+            "outlet_detail",
+            "billed_at",
+            "subtotal",
+            "tax",
+            "discount",
+            "total",
+            "payment_mode",
+            "items",
+            "write_items",
         ]
         read_only_fields = ["subtotal", "tax", "total", "billed_at"]
 
