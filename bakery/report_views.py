@@ -1,112 +1,109 @@
-# bakery/report_views.py
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import timedelta
+
+from django.db.models import Sum, F, DecimalField, ExpressionWrapper, Value
+from django.db.models.functions import TruncDate
 from django.utils import timezone
-from django.db.models import Sum, Count
-from django.db.models.functions import Coalesce
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from .models import Sale, Wastage
-
-
-def money(x: Decimal) -> str:
-    """Format a Decimal as a string with 2 decimal places."""
-    if x is None:
-        x = Decimal("0")
-    return str(Decimal(x).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+from .models import Sale, SaleItem, StockLedger
 
 
-def _parse_date(d: str):
-    """Helper to parse YYYY-MM-DD into a Python date object."""
-    return datetime.strptime(d, "%Y-%m-%d").date()
+def money(value) -> str:
+    if value is None:
+        value = Decimal("0")
+    return str(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
-@extend_schema(
-    parameters=[
-        OpenApiParameter(name="from", description="Start date (YYYY-MM-DD)", required=False, type=str),
-        OpenApiParameter(name="to", description="End date (YYYY-MM-DD)", required=False, type=str),
-    ],
-    responses={200: dict},
-)
 @api_view(["GET"])
 def owner_summary(request):
-    """
-    Returns owner KPIs for a date or date range (inclusive).
-    Defaults to 'today' in your local timezone.
-    """
-    tz = timezone.get_current_timezone()
+    today = timezone.localdate()
+    window_start = today - timedelta(days=29)
 
-    # --- Date range handling ---
-    today_local = timezone.localdate()
-    date_from_str = request.query_params.get("from")
-    date_to_str = request.query_params.get("to")
+    sales_all_time = Sale.objects.aggregate(total=Sum("total"))["total"] or Decimal("0")
 
-    if date_from_str and date_to_str:
-        date_from = _parse_date(date_from_str)
-        date_to = _parse_date(date_to_str)
-    elif date_from_str and not date_to_str:
-        date_from = _parse_date(date_from_str)
-        date_to = date_from
-    elif not date_from_str and date_to_str:
-        date_to = _parse_date(date_to_str)
-        date_from = date_to
-    else:
-        # default: today
-        date_from = today_local
-        date_to = today_local
-
-    # --- Sales aggregates ---
-    sales_qs = Sale.objects.filter(
-        billed_at__date__gte=date_from,
-        billed_at__date__lte=date_to,
+    sales_30d_qs = Sale.objects.filter(
+        billed_at__date__gte=window_start,
+        billed_at__date__lte=today,
     )
+    sales_30d_total = sales_30d_qs.aggregate(total=Sum("total"))["total"] or Decimal("0")
+    orders_30d = sales_30d_qs.count()
+    avg_ticket_30d = sales_30d_total / orders_30d if orders_30d else Decimal("0")
 
-    agg = sales_qs.aggregate(
-        subtotal=Coalesce(Sum("subtotal"), Decimal("0.00")),
-        tax=Coalesce(Sum("tax"), Decimal("0.00")),
-        discount=Coalesce(Sum("discount"), Decimal("0.00")),
-        total=Coalesce(Sum("total"), Decimal("0.00")),
-        bills=Coalesce(Count("id"), 0),
+    sales_today_total = Sale.objects.filter(billed_at__date=today).aggregate(total=Sum("total"))["total"] or Decimal("0")
+
+    sales_by_day_qs = (
+        sales_30d_qs
+        .annotate(day=TruncDate("billed_at"))
+        .values("day")
+        .annotate(total=Sum("total"))
+        .order_by("day")
     )
-
-    bills = int(agg["bills"] or 0)
-    avg_bill = (Decimal(agg["total"]) / bills) if bills else Decimal("0.00")
-
-    # --- Outlet leaderboard (by total sales) ---
-    by_outlet_qs = (
-        sales_qs.values("outlet__name")
-        .annotate(sales=Coalesce(Sum("total"), Decimal("0.00")))
-        .order_by("-sales")
-    )
-
-    by_outlet = [
-        {"outlet": row["outlet__name"], "sales": money(row["sales"])}
-        for row in by_outlet_qs
+    sales_by_day = [
+        {"date": str(row["day"]), "total": money(row["total"])}
+        for row in sales_by_day_qs
     ]
 
-    # --- Wastage (optional; returns totals if you use the Wastage model) ---
-    try:
-        wastage_qs = Wastage.objects.filter(
-            noted_at__date__gte=date_from,
-            noted_at__date__lte=date_to,
-        )
-        wastage_qty = wastage_qs.aggregate(qty=Coalesce(Sum("qty"), 0.0))["qty"] or 0.0
-    except Exception:
-        wastage_qty = 0.0  # fallback if Wastage model not used or no data yet
+    revenue_expr = ExpressionWrapper(
+        F("qty") * F("unit_price") * (
+            Value(Decimal("1.00")) + F("tax_pct") / Value(Decimal("100.00"))
+        ),
+        output_field=DecimalField(max_digits=18, decimal_places=2),
+    )
 
-    # --- Response payload ---
+    top_products_qs = (
+        SaleItem.objects.filter(
+            sale__billed_at__date__gte=window_start,
+            sale__billed_at__date__lte=today,
+        )
+        .values("product_id", "product__name")
+        .annotate(
+            qty=Sum("qty"),
+            revenue=Sum(revenue_expr),
+        )
+        .order_by("-revenue")
+    )[:5]
+
+    top_products = [
+        {
+            "product_id": row["product_id"],
+            "name": row["product__name"],
+            "qty": float(row["qty"] or 0),
+            "revenue": money(row["revenue"]),
+        }
+        for row in top_products_qs
+    ]
+
+    low_stock_qs = (
+        StockLedger.objects.filter(batch__isnull=False)
+        .values("batch_id", "batch__product__name")
+        .annotate(qty_on_hand=Sum(F("qty_in") - F("qty_out")))
+        .filter(qty_on_hand__lte=5)
+        .order_by("qty_on_hand", "batch_id")
+    )[:5]
+
+    low_stock = [
+        {
+            "batch_id": row["batch_id"],
+            "product": row["batch__product__name"],
+            "batch_code": f"B{row['batch_id']:05d}",
+            "qty": float(row["qty_on_hand"] or 0),
+        }
+        for row in low_stock_qs
+    ]
+
     data = {
-        "date_from": str(date_from),
-        "date_to": str(date_to),
-        "subtotal": money(agg["subtotal"]),
-        "tax": money(agg["tax"]),
-        "discount": money(agg["discount"]),
-        "total_sales": money(agg["total"]),
-        "bills": bills,
-        "avg_bill": money(avg_bill),
-        "by_outlet": by_outlet,
-        "wastage_qty": wastage_qty,
+        "totals": {
+            "sales_all_time": money(sales_all_time),
+            "sales_30d": money(sales_30d_total),
+            "orders_30d": orders_30d,
+            "avg_ticket_30d": money(avg_ticket_30d),
+            "sales_today": money(sales_today_total),
+        },
+        "sales_by_day_30d": sales_by_day,
+        "top_products_30d": top_products,
+        "low_stock": low_stock,
     }
+
     return Response(data)

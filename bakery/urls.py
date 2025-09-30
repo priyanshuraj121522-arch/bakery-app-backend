@@ -11,6 +11,7 @@ from .views import (
     health,
 )
 from .report_views import owner_summary
+from .import_views import import_products, import_sales
 
 # Routers for CRUD endpoints
 router = DefaultRouter()
@@ -25,4 +26,6 @@ urlpatterns = [
     path("health/", health, name="health"),          # /api/health/
     path("me/", me, name="me"),                      # /api/me/
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
+    path("import/products/", import_products, name="import-products"),
+    path("import/sales/", import_sales, name="import-sales"),
 ]
