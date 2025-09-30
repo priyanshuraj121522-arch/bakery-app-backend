@@ -1,13 +1,17 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import models
+from django.db.models import Sum, Count, F, Value, DecimalField, FloatField
+from django.db.models.functions import TruncDate, Coalesce, Cast
+from django.utils import timezone
 from django.utils.timezone import make_aware
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, permissions, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .models import AuditLog, Product, Outlet, StockLedger
+from .models import AuditLog, Product, Outlet, StockLedger, Sale, SaleItem
 from .serializers import AuditLogSerializer, StockAlertRow
 
 
@@ -114,3 +118,86 @@ def stock_check_now(request):
     serializer = StockAlertRow(data=data, many=True)
     serializer.is_valid(raise_exception=True)
     return Response({"results": serializer.data})
+
+
+class DashboardSummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        now = timezone.now()
+        since = now - timedelta(days=30)
+
+        sale_date = Coalesce(F("billed_at"), F("created_at"))
+        sales_qs = Sale.objects.annotate(s_date=sale_date).filter(s_date__gte=since)
+
+        orders_30d = sales_qs.count()
+        sales_sum = sales_qs.aggregate(
+            total=Coalesce(
+                Sum(
+                    Cast("total", output_field=DecimalField(max_digits=12, decimal_places=2))
+                ),
+                Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            )
+        )["total"] or 0
+        sales_30d = float(sales_sum)
+        avg_ticket_30d = float(sales_30d / orders_30d) if orders_30d else 0.0
+
+        by_day = (
+            sales_qs.annotate(day=TruncDate("s_date"))
+            .values("day")
+            .annotate(
+                total=Coalesce(
+                    Sum(
+                        Cast("total", output_field=DecimalField(max_digits=12, decimal_places=2))
+                    ),
+                    Value(0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+                )
+            )
+            .order_by("day")
+        )
+        sales_by_day_30d = [
+            {"date": r["day"].isoformat(), "total": float(r["total"] or 0)}
+            for r in by_day
+            if r.get("day")
+        ]
+
+        items_qs = SaleItem.objects.annotate(
+            s_date=Coalesce(F("sale__billed_at"), F("sale__created_at"))
+        ).filter(s_date__gte=since)
+
+        items_qs = items_qs.annotate(
+            line_revenue=Coalesce(
+                Cast(F("qty"), FloatField()) * Cast(F("unit_price"), FloatField()),
+                Value(0.0, output_field=FloatField()),
+            )
+        )
+
+        top = (
+            items_qs.values("product__name")
+            .annotate(
+                revenue=Coalesce(Sum("line_revenue"), Value(0.0, output_field=FloatField())),
+                qty=Coalesce(Sum(Cast("qty", FloatField())), Value(0.0, output_field=FloatField())),
+            )
+            .order_by("-revenue")[:10]
+        )
+
+        top_products_30d = [
+            {
+                "name": r.get("product__name") or "Unnamed",
+                "revenue": float(r.get("revenue") or 0),
+                "qty": float(r.get("qty") or 0),
+            }
+            for r in top
+        ]
+
+        return Response(
+            {
+                "kpis": {
+                    "sales_30d": sales_30d,
+                    "orders_30d": orders_30d,
+                    "avg_ticket_30d": avg_ticket_30d,
+                },
+                "sales_by_day_30d": sales_by_day_30d,
+                "top_products_30d": top_products_30d,
+            }
+        )

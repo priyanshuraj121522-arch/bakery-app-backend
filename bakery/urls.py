@@ -10,7 +10,7 @@ from .views import (
     me,
     health,
 )
-from .admin_views import AuditLogViewSet, stock_check_now
+from .admin_views import AuditLogViewSet, stock_check_now, DashboardSummaryView
 from .report_views import owner_summary
 from .import_views import import_products, import_sales
 
@@ -31,4 +31,5 @@ urlpatterns = [
     path("import/products/", import_products, name="import-products"),
     path("import/sales/", import_sales, name="import-sales"),
     path("tools/stock-check/", stock_check_now, name="stock-check"),
+    path("admin/summary/", DashboardSummaryView.as_view(), name="dashboard-summary"),
 ]
