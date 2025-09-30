@@ -4,16 +4,18 @@ import json
 
 from django.db import transaction
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.exceptions import ValidationError
 
+from .import_utils import load_tabular
 from .models import Product, Outlet
 from .serializers import SaleSerializer
-from .import_utils import load_tabular
 
+
+# ---- helpers ---------------------------------------------------------------
 
 def _as_bool(value) -> bool:
     if isinstance(value, bool):
@@ -24,7 +26,7 @@ def _as_bool(value) -> bool:
 
 
 def _as_decimal(value, default="0") -> Decimal:
-    if value is None or value == "":
+    if value in (None, ""):
         value = default
     try:
         return Decimal(str(value))
@@ -35,7 +37,7 @@ def _as_decimal(value, default="0") -> Decimal:
 def _parse_rows(request):
     try:
         rows = load_tabular(request)
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:  # broad catch, surface message to caller
         raise ValidationError(str(exc))
     if not isinstance(rows, list):
         raise ValidationError("Unable to parse sheet")
@@ -56,6 +58,8 @@ def _stringify(message: object) -> str:
         return str(message)
 
 
+# ---- import products -------------------------------------------------------
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def import_products(request):
@@ -64,79 +68,85 @@ def import_products(request):
 
     created = 0
     updated = 0
-    errors = []
-
+    errors: list[dict] = []
     sample = rows[:3]
 
     with transaction.atomic():
-    for idx, row in enumerate(rows, start=1):
-        sku = str(row.get("sku", "")).strip()
-        name = str(row.get("name", "")).strip()
-        if not sku:
-            errors.append({"row": idx, "message": "Missing SKU"})
-            continue
-        if not name:
-            errors.append({"row": idx, "message": "Missing name"})
-            continue
-        if row.get("mrp") in (None, ""):
-            errors.append({"row": idx, "message": "Missing mrp"})
-            continue
-        try:
-            mrp = _as_decimal(row.get("mrp"))
-            tax_pct = _as_decimal(row.get("tax_pct"), default="0")
-        except ValidationError as exc:
-            detail = getattr(exc, "detail", str(exc))
-            errors.append({"row": idx, "message": _stringify(detail)})
-            continue
+        for idx, row in enumerate(rows, start=1):
+            sku = str(row.get("sku", "")).strip()
+            name = str(row.get("name", "")).strip()
+            if not sku:
+                errors.append({"row": idx, "message": "Missing SKU"})
+                continue
+            if not name:
+                errors.append({"row": idx, "message": "Missing name"})
+                continue
+            if row.get("mrp") in (None, ""):
+                errors.append({"row": idx, "message": "Missing mrp"})
+                continue
 
-        mrp = mrp.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        tax_pct = tax_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            try:
+                mrp = _as_decimal(row.get("mrp"))
+                tax_pct = _as_decimal(row.get("tax_pct"), default="0")
+            except ValidationError as exc:
+                detail = getattr(exc, "detail", str(exc))
+                errors.append({"row": idx, "message": _stringify(detail)})
+                continue
 
-        active_value = row.get("active", True)
-        active = True
-        if active_value not in (None, ""):
-            active = _as_bool(active_value)
+            mrp = mrp.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            tax_pct = tax_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        product, created_flag = Product.objects.get_or_create(sku=sku, defaults={
-            "name": name,
-            "mrp": mrp,
-            "tax_pct": tax_pct,
-            "active": active,
-        })
-        if created_flag:
-            created += 1
-            continue
+            active_value = row.get("active", True)
+            active = _as_bool(active_value) if active_value not in (None, "") else True
 
-        dirty = False
-        if product.name != name:
-            product.name = name
-            dirty = True
+            product, created_flag = Product.objects.get_or_create(
+                sku=sku,
+                defaults={
+                    "name": name,
+                    "mrp": mrp,
+                    "tax_pct": tax_pct,
+                    "active": active,
+                },
+            )
+
+            if created_flag:
+                created += 1
+                continue
+
+            dirty = False
+            if product.name != name:
+                product.name = name
+                dirty = True
             if product.mrp != mrp:
                 product.mrp = mrp
                 dirty = True
             if product.tax_pct != tax_pct:
-            product.tax_pct = tax_pct
-            dirty = True
-        if product.active != active:
-            product.active = active
-            dirty = True
+                product.tax_pct = tax_pct
+                dirty = True
+            if product.active != active:
+                product.active = active
+                dirty = True
 
-        if dirty:
-            product.save()
-            updated += 1
+            if dirty:
+                product.save()
+                updated += 1
 
         if dry_run:
             transaction.set_rollback(True)
 
-    return Response({
-        "ok": True,
-        "dry_run": dry_run,
-        "created": created,
-        "updated": updated,
-        "errors": errors,
-        "sample": sample,
-    })
+    return Response(
+        {
+            "ok": True,
+            "dry_run": dry_run,
+            "created": created,
+            "updated": updated,
+            "errors": errors,
+            "sample": sample,
+        }
+    )
 
+
+# ---- import sales ----------------------------------------------------------
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -145,7 +155,7 @@ def import_sales(request):
     dry_run = _parse_dry_run(request)
 
     created = 0
-    errors = []
+    errors: list[dict] = []
     sample = rows[:3]
 
     with transaction.atomic():
@@ -184,22 +194,24 @@ def import_sales(request):
                 errors.append({"row": idx, "message": "Invalid qty"})
                 continue
 
-            unit_price = row.get("unit_price")
+            unit_price_value = row.get("unit_price")
             try:
-                if unit_price in (None, ""):
-                    unit_price = product.mrp
-                unit_price = Decimal(str(unit_price))
-                unit_price = unit_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if unit_price_value in (None, ""):
+                    unit_price_value = product.mrp
+                unit_price = Decimal(str(unit_price_value)).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
             except (InvalidOperation, TypeError):
                 errors.append({"row": idx, "message": "Invalid unit_price"})
                 continue
 
-            tax_pct = row.get("tax_pct")
+            tax_pct_value = row.get("tax_pct")
             try:
-                if tax_pct in (None, ""):
-                    tax_pct = product.tax_pct
-                tax_pct = Decimal(str(tax_pct))
-                tax_pct = tax_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if tax_pct_value in (None, ""):
+                    tax_pct_value = product.tax_pct
+                tax_pct = Decimal(str(tax_pct_value)).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
             except (InvalidOperation, TypeError):
                 errors.append({"row": idx, "message": "Invalid tax_pct"})
                 continue
@@ -240,9 +252,9 @@ def import_sales(request):
                 detail = getattr(exc, "detail", str(exc))
                 errors.append({"row": idx, "message": _stringify(detail)})
                 continue
+
             if date_str:
-                naive_dt = datetime.combine(billed_date, datetime.min.time())
-                aware_dt = timezone.make_aware(naive_dt) if timezone.is_naive(naive_dt) else naive_dt
+                aware_dt = timezone.make_aware(datetime.combine(billed_date, datetime.min.time()))
                 sale.billed_at = aware_dt
                 sale.save(update_fields=["billed_at"])
 
@@ -251,11 +263,15 @@ def import_sales(request):
         if dry_run:
             transaction.set_rollback(True)
 
-    return Response({
-        "ok": True,
-        "dry_run": dry_run,
-        "created": created,
-        "updated": 0,
-        "errors": errors,
-        "sample": sample,
-    })
+    return Response(
+        {
+            "ok": True,
+            "dry_run": dry_run,
+            "created": created,
+            "updated": 0,
+            "errors": errors,
+            "sample": sample,
+        },
+        status=status.HTTP_200_OK,
+    )
+
