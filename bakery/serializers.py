@@ -127,13 +127,14 @@ class SaleSerializer(serializers.ModelSerializer):
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
-    actor_username = serializers.CharField(source="actor.username", read_only=True)
+    actor_email = serializers.EmailField(source="actor.email", read_only=True)
 
     class Meta:
         model = AuditLog
         fields = [
             "id",
-            "actor_username",
+            "actor",
+            "actor_email",
             "action",
             "table",
             "row_id",
@@ -143,4 +144,13 @@ class AuditLogSerializer(serializers.ModelSerializer):
             "ua",
             "created_at",
         ]
+
+
+class StockAlertRow(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    product_name = serializers.CharField()
+    outlet_id = serializers.IntegerField(allow_null=True)
+    outlet_name = serializers.CharField(allow_blank=True)
+    qty_on_hand = serializers.FloatField()
+    threshold = serializers.FloatField()
 

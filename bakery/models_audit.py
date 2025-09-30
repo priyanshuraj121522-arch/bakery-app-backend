@@ -20,9 +20,9 @@ class AuditLog(models.Model):
         on_delete=models.SET_NULL,
         related_name="audit_logs",
     )
-    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
-    table = models.CharField(max_length=64)
-    row_id = models.IntegerField()
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES)
+    table = models.CharField(max_length=100)
+    row_id = models.CharField(max_length=50)
     before = models.JSONField(null=True, blank=True)
     after = models.JSONField(null=True, blank=True)
     ip = models.GenericIPAddressField(null=True, blank=True)

@@ -1,67 +1,19 @@
 # bakery/views.py
-from datetime import datetime
-
-from django.db.models import Q
-from rest_framework import mixins, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .audit import write_audit
-from .alerts import check_low_stock
 from .models import Outlet, Product, Batch, Sale
-from .models_audit import AuditLog
-from .permissions import IsOwner, IsManagerOrAbove, IsCashierOrAbove
+from .permissions import IsManagerOrAbove, IsCashierOrAbove
 from .serializers import (
     OutletSerializer,
     ProductSerializer,
     BatchSerializer,
     SaleSerializer,
-    AuditLogSerializer,
 )
 
-
-class AuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    queryset = AuditLog.objects.select_related("actor").all()
-    serializer_class = AuditLogSerializer
-    permission_classes = [IsAuthenticated, IsOwner]
-
-    def get_queryset(self):
-        qs = super().get_queryset().order_by("-created_at")
-        params = self.request.query_params
-
-        action = params.get("action")
-        if action:
-            qs = qs.filter(action=action.lower())
-
-        table = params.get("table")
-        if table:
-            qs = qs.filter(table__icontains=table.strip())
-
-        q = params.get("q")
-        if q:
-            filters = Q(before__icontains=q) | Q(after__icontains=q) | Q(ua__icontains=q)
-            if q.isdigit():
-                filters |= Q(row_id=int(q))
-            qs = qs.filter(filters)
-
-        date_from = params.get("date_from")
-        if date_from:
-            try:
-                start = datetime.strptime(date_from, "%Y-%m-%d").date()
-                qs = qs.filter(created_at__date__gte=start)
-            except ValueError:
-                pass
-
-        date_to = params.get("date_to")
-        if date_to:
-            try:
-                end = datetime.strptime(date_to, "%Y-%m-%d").date()
-                qs = qs.filter(created_at__date__lte=end)
-            except ValueError:
-                pass
-
-        return qs
 
 
 class BaseAuditedViewSet(viewsets.ModelViewSet):
@@ -121,12 +73,6 @@ class SaleViewSet(BaseAuditedViewSet):
 
 # --- Simple utility endpoints ---
 
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated, IsManagerOrAbove])
-def stock_check(request):
-    items = check_low_stock()
-    return Response({"items": items})
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

@@ -7,11 +7,10 @@ from .views import (
     ProductViewSet,
     BatchViewSet,
     SaleViewSet,
-    AuditLogViewSet,
     me,
     health,
-    stock_check,
 )
+from .admin_views import AuditLogViewSet, stock_check_now
 from .report_views import owner_summary
 from .import_views import import_products, import_sales
 
@@ -21,7 +20,7 @@ router.register("outlets", OutletViewSet)
 router.register("products", ProductViewSet)
 router.register("batches", BatchViewSet)
 router.register("sales", SaleViewSet, basename="sale")
-router.register("audit", AuditLogViewSet, basename="auditlog")
+router.register("audit/logs", AuditLogViewSet, basename="audit-log")
 
 # Explicit endpoints
 urlpatterns = [
@@ -31,5 +30,5 @@ urlpatterns = [
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("import/products/", import_products, name="import-products"),
     path("import/sales/", import_sales, name="import-sales"),
-    path("utils/stock-check/", stock_check, name="stock-check"),
+    path("tools/stock-check/", stock_check_now, name="stock-check"),
 ]
