@@ -3,6 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from rest_framework import serializers
 from .models import Outlet, Product, Batch, Sale, SaleItem, StockLedger
+from .models_audit import AuditLog
 
 def money(x) -> Decimal:
     return (Decimal(x).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
@@ -123,3 +124,23 @@ class SaleSerializer(serializers.ModelSerializer):
         sale.save()
 
         return sale
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    actor_username = serializers.CharField(source="actor.username", read_only=True)
+
+    class Meta:
+        model = AuditLog
+        fields = [
+            "id",
+            "actor_username",
+            "action",
+            "table",
+            "row_id",
+            "before",
+            "after",
+            "ip",
+            "ua",
+            "created_at",
+        ]
+

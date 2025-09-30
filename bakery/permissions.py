@@ -1,71 +1,45 @@
-# bakery/permissions.py
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
+OWNER_GROUP = "Owner"
+MANAGER_GROUP = "Manager"
+CASHIER_GROUP = "Cashier"
+
+
+def _has_group(user, name: str) -> bool:
+    return user.groups.filter(name=name).exists()
+
+
 class IsOwner(BasePermission):
-    """
-    Full access only for users in 'owner' group.
-    """
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.groups.filter(name="owner").exists()
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (user.is_superuser or _has_group(user, OWNER_GROUP))
         )
 
 
-class IsManagerOrOwner(BasePermission):
-    """
-    Managers and Owners can access.
-    """
+class IsManagerOrAbove(BasePermission):
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and (
-                request.user.groups.filter(name="owner").exists()
-                or request.user.groups.filter(name="outlet_manager").exists()
-            )
-        )
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser or _has_group(user, OWNER_GROUP):
+            return True
+        return _has_group(user, MANAGER_GROUP)
 
 
 class IsCashierOrAbove(BasePermission):
-    """
-    Cashiers, Managers, and Owners can access.
-    """
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and (
-                request.user.groups.filter(name="owner").exists()
-                or request.user.groups.filter(name="outlet_manager").exists()
-                or request.user.groups.filter(name="cashier").exists()
-            )
-        )
-
-
-class IsOwnerOrOutletUser(BasePermission):
-    """
-    Owners see everything.
-    Managers/Cashiers restricted to their assigned outlet (via UserProfile).
-    """
-    def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated
-
-    def has_object_permission(self, request, view, obj):
-        # Owners bypass outlet restriction
-        if request.user.groups.filter(name="owner").exists():
-            return True
-
-        # Non-owner: must have a UserProfile with an outlet
-        profile = getattr(request.user, "profile", None)
-        if not profile or not profile.outlet:
+        user = request.user
+        if not user or not user.is_authenticated:
             return False
+        if user.is_superuser or _has_group(user, OWNER_GROUP) or _has_group(user, MANAGER_GROUP):
+            return True
+        return _has_group(user, CASHIER_GROUP)
 
-        # If the object has an outlet field, enforce match
-        if hasattr(obj, "outlet_id"):
-            return obj.outlet_id == profile.outlet.id
 
-        # Otherwise, only allow safe (read-only) access
+class ReadOnly(BasePermission):
+    def has_permission(self, request, view):
         return request.method in SAFE_METHODS

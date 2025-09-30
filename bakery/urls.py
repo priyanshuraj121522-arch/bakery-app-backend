@@ -7,6 +7,7 @@ from .views import (
     ProductViewSet,
     BatchViewSet,
     SaleViewSet,
+    AuditLogViewSet,
     me,
     health,
 )
@@ -19,6 +20,7 @@ router.register("outlets", OutletViewSet)
 router.register("products", ProductViewSet)
 router.register("batches", BatchViewSet)
 router.register("sales", SaleViewSet, basename="sale")
+router.register("audit", AuditLogViewSet, basename="auditlog")
 
 # Explicit endpoints
 urlpatterns = [
