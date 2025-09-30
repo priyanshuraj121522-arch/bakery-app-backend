@@ -8,6 +8,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .audit import write_audit
+from .alerts import check_low_stock
 from .models import Outlet, Product, Batch, Sale
 from .models_audit import AuditLog
 from .permissions import IsOwner, IsManagerOrAbove, IsCashierOrAbove
@@ -119,6 +120,13 @@ class SaleViewSet(BaseAuditedViewSet):
 
 
 # --- Simple utility endpoints ---
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated, IsManagerOrAbove])
+def stock_check(request):
+    items = check_low_stock()
+    return Response({"items": items})
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

@@ -10,6 +10,7 @@ from .views import (
     AuditLogViewSet,
     me,
     health,
+    stock_check,
 )
 from .report_views import owner_summary
 from .import_views import import_products, import_sales
@@ -30,4 +31,5 @@ urlpatterns = [
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("import/products/", import_products, name="import-products"),
     path("import/sales/", import_sales, name="import-sales"),
+    path("utils/stock-check/", stock_check, name="stock-check"),
 ]

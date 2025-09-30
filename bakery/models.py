@@ -20,6 +20,7 @@ class Product(models.Model):
     mrp  = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     tax_pct = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     shelf_life_hours = models.IntegerField(default=24)
+    reorder_threshold = models.FloatField(default=0)
     active = models.BooleanField(default=True)
     def __str__(self): return f"{self.sku} - {self.name}"
 
