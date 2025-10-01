@@ -78,15 +78,29 @@ class SaleViewSet(BaseAuditedViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def me(request):
-    """Return the currently authenticated user with roles."""
+    """Return the currently authenticated user with roles and outlet context."""
     user = request.user
     roles = list(user.groups.values_list("name", flat=True))
     if user.is_superuser and "Owner" not in roles:
         roles.append("Owner")
+
+    role_map = {"owner": "owner", "manager": "manager", "cashier": "cashier"}
+    normalized_roles = sorted({role_map.get(role.lower(), role.lower()) for role in roles})
+
+    profile = getattr(user, "profile", None)
+    outlet_id = getattr(profile, "outlet_id", None)
+    if profile and profile.outlet_id and getattr(profile, "outlet", None):
+        outlets_data = [{"id": profile.outlet_id, "name": profile.outlet.name}]
+    else:
+        outlets_data = list(Outlet.objects.values("id", "name"))
+
     return Response({
         "id": user.id,
         "username": user.username,
-        "roles": roles,
+        "email": user.email or "",
+        "roles": normalized_roles,
+        "outlet_id": outlet_id,
+        "outlets": outlets_data,
     })
 
 
