@@ -1,8 +1,9 @@
 """Authentication entry points with JSON-only responses."""
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
+from django.db.models import Q
 from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
@@ -11,37 +12,54 @@ from rest_framework_simplejwt.tokens import RefreshToken
 User = get_user_model()
 
 
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
-def login_view(request):
-    """Authenticate by username or email and return JWT pair."""
+def _tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    }
 
-    identifier = (request.data.get("usernameOrEmail") or "").strip()
-    password = request.data.get("password") or ""
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def login_flexible(request):
+    """Accept multiple credential keys and return JWT pair."""
+
+    data = request.data or {}
+    identifier = (
+        data.get("usernameOrEmail")
+        or data.get("username")
+        or data.get("email")
+        or ""
+    ).strip()
+    password = (data.get("password") or "").strip()
 
     if not identifier or not password:
-        return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "Missing credentials."}, status=status.HTTP_400_BAD_REQUEST)
 
-    if "@" in identifier:
-        user = User.objects.filter(email__iexact=identifier).first()
-    else:
-        user = User.objects.filter(username__iexact=identifier).first()
+    user_obj = User.objects.filter(
+        Q(username__iexact=identifier) | Q(email__iexact=identifier)
+    ).first()
+    if not user_obj:
+        return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-    if not user or not user.is_active or not user.check_password(password):
-        return Response({"detail": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
+    user = authenticate(request, username=user_obj.username, password=password)
+    if not user:
+        return Response({"detail": "Invalid credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
-    refresh = RefreshToken.for_user(user)
-    access_token = refresh.access_token
+    if not user.is_active:
+        return Response({"detail": "User inactive."}, status=status.HTTP_403_FORBIDDEN)
 
+    tokens = _tokens_for_user(user)
     return Response(
         {
-            "access": str(access_token),
-            "refresh": str(refresh),
+            **tokens,
             "user": {
                 "id": user.id,
-                "username": user.get_username(),
+                "username": user.username,
                 "email": user.email,
+                "is_superuser": getattr(user, "is_superuser", False),
+                "is_staff": getattr(user, "is_staff", False),
             },
         },
         status=status.HTTP_200_OK,
@@ -49,7 +67,6 @@ def login_view(request):
 
 
 @api_view(["POST"])
-@authentication_classes([])
 @permission_classes([AllowAny])
 def refresh_view(request):
     """Exchange a refresh token for a new access token."""

@@ -2,7 +2,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from . import auth_views as bakery_auth_views
+from .auth_views import login_flexible, refresh_view
 from .views import (
     OutletViewSet,
     ProductViewSet,
@@ -42,8 +42,8 @@ router.register("import/jobs", ImportJobViewSet, basename="import-job")
 # Explicit endpoints
 urlpatterns = [
     path("", include(router.urls)),
-    path("auth/login/", bakery_auth_views.login_view, name="api-auth-login"),
-    path("auth/refresh/", bakery_auth_views.refresh_view, name="api-auth-refresh"),
+    path("auth/login/", login_flexible, name="api-login"),
+    path("auth/refresh/", refresh_view, name="api-auth-refresh"),
     path("health/", health, name="health"),          # /api/health/
     path("health/db/", health_db, name="health-db"),
     path("me/", me, name="me"),                      # /api/me/
