@@ -1,5 +1,6 @@
 # bakery/views.py
-from rest_framework import viewsets
+from django.db import connection
+from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -94,3 +95,16 @@ def me(request):
 def health(request):
     """Simple health check"""
     return Response({"status": "ok"})
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def health_db(request):
+    """Verify database connectivity by executing a lightweight query."""
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except Exception as exc:
+        return Response({"ok": False, "error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response({"ok": True})
+

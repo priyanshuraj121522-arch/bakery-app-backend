@@ -9,6 +9,7 @@ from .views import (
     SaleViewSet,
     me,
     health,
+    health_db,
 )
 from .attendance_views import EmployeeViewSet, AttendanceViewSet
 from .payroll_views import PayrollEntryViewSet, PayrollCalculationView, PayrollPeriodViewSet
@@ -41,6 +42,7 @@ router.register("import/jobs", ImportJobViewSet, basename="import-job")
 urlpatterns = [
     path("", include(router.urls)),
     path("health/", health, name="health"),          # /api/health/
+    path("health/db/", health_db, name="health-db"),
     path("me/", me, name="me"),                      # /api/me/
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("import/products/", import_products, name="import-products"),
