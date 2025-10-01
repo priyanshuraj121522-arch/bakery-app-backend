@@ -16,6 +16,7 @@ from .models import (
     ImportPreset,
     ImportJob,
 )
+from .costing import compute_cogs_for_sale
 from .models_audit import AuditLog
 
 def money(x) -> Decimal:
@@ -286,6 +287,8 @@ class SaleSerializer(serializers.ModelSerializer):
         sale.tax = money(total_tax)
         sale.total = computed_total
         sale.save()
+
+        compute_cogs_for_sale(sale)
 
         return sale
 

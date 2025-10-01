@@ -15,7 +15,7 @@ from .attendance_views import EmployeeViewSet, AttendanceViewSet
 from .payroll_views import PayrollEntryViewSet, PayrollCalculationView, PayrollPeriodViewSet
 from .admin_views import AuditLogViewSet, stock_check_now, admin_summary
 from .exports import ExportSalesView, ExportProductsView
-from .report_views import owner_summary
+from .report_views import owner_summary, cogs_report, gross_costs_summary
 from .import_views import (
     import_products,
     import_sales,
@@ -45,6 +45,8 @@ urlpatterns = [
     path("health/db/", health_db, name="health-db"),
     path("me/", me, name="me"),                      # /api/me/
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
+    path("reports/cogs/", cogs_report, name="cogs-report"),
+    path("reports/gross-costs/", gross_costs_summary, name="gross-costs"),
     path("import/products/", import_products, name="import-products"),
     path("import/sales/", import_sales, name="import-sales"),
     path("import/start/", ImportStartView.as_view(), name="import-start"),

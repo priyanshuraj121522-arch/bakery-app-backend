@@ -129,6 +129,50 @@ class Attendance(models.Model):
         return f"{self.employee} @ {self.date.isoformat()}"
 
 
+class PurchaseBatch(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="purchase_batches")
+    outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="purchase_batches")
+    batch_no = models.CharField(max_length=64)
+    received_at = models.DateField()
+    qty_in = models.FloatField()
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    qty_remaining = models.FloatField()
+    expiry = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["product", "outlet", "expiry"]),
+            models.Index(fields=["outlet", "expiry"]),
+        ]
+        ordering = ["expiry", "received_at", "id"]
+
+    def __str__(self):
+        return f"{self.product} @ {self.outlet} ({self.batch_no})"
+
+
+class CogsEntry(models.Model):
+    FIFO = "FIFO"
+    FEFO = "FEFO"
+    METHOD_CHOICES = [(FIFO, "FIFO"), (FEFO, "FEFO")]
+
+    sale_item = models.OneToOneField(SaleItem, on_delete=models.CASCADE, related_name="cogs_entry")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT)
+    qty = models.FloatField()
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
+    total_cost = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(max_length=4, choices=METHOD_CHOICES, default=FIFO)
+    computed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-computed_at", "sale_item_id"]
+
+    def __str__(self):
+        return f"COGS {self.sale_item_id} -> {self.total_cost}"
+
+
 class PayrollPeriod(models.Model):
     name = models.CharField(max_length=120)
     start_date = models.DateField()
