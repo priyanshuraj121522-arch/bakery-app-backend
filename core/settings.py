@@ -116,20 +116,19 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # --- CORS ---
-# Default: open in dev. In prod, set CORS_ALLOW_ALL=0 and use FRONTEND_ORIGIN.
-CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL", "1") == "1"
-CORS_ALLOW_CREDENTIALS = True
+ALLOWED_ORIGINS = _csv("ALLOWED_ORIGINS")
+if not ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS = [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+    ]
+
+CORS_ALLOWED_ORIGINS = ALLOWED_ORIGINS
+CORS_ALLOW_CREDENTIALS = False
 
 # Make preflights permissive and predictable
 CORS_ALLOW_HEADERS = ["*"]
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-
-if not CORS_ALLOW_ALL_ORIGINS:
-    FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "")
-    CORS_ALLOWED_ORIGINS = [
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-    ] + ([FRONTEND_ORIGIN] if FRONTEND_ORIGIN else [])
 
 # --- CSRF trusted origins ---
 _default_csrf = [
@@ -139,7 +138,7 @@ _default_csrf = [
     "https://bakery-app-backend-production.up.railway.app",
 ]
 # merge env-provided with defaults, dedup
-CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS + _default_csrf))
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(CSRF_TRUSTED_ORIGINS + _default_csrf + CORS_ALLOWED_ORIGINS))
 
 # --- DRF, JWT & API schema ---
 REST_FRAMEWORK = {
@@ -154,6 +153,15 @@ REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": os.getenv("THROTTLE_RATE_ANON", "50/min"),
+        "user": os.getenv("THROTTLE_RATE_USER", "200/min"),
+        "auth": os.getenv("THROTTLE_RATE_AUTH", "10/min"),
+    },
 }
 
 SIMPLE_JWT = {
@@ -229,3 +237,15 @@ LOGGING = {
         },
     },
 }
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+    X_FRAME_OPTIONS = "DENY"
