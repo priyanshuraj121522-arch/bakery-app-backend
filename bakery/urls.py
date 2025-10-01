@@ -15,7 +15,13 @@ from .payroll_views import PayrollEntryViewSet, PayrollCalculationView, PayrollP
 from .admin_views import AuditLogViewSet, stock_check_now, admin_summary
 from .exports import ExportSalesView, ExportProductsView
 from .report_views import owner_summary
-from .import_views import import_products, import_sales
+from .import_views import (
+    import_products,
+    import_sales,
+    ImportPresetViewSet,
+    ImportJobViewSet,
+    ImportStartView,
+)
 
 # Routers for CRUD endpoints
 router = DefaultRouter()
@@ -28,6 +34,8 @@ router.register("employees", EmployeeViewSet)
 router.register("attendance", AttendanceViewSet)
 router.register("payroll/periods", PayrollPeriodViewSet)
 router.register("payroll/entries", PayrollEntryViewSet, basename="payroll-entry")
+router.register("import/presets", ImportPresetViewSet, basename="import-preset")
+router.register("import/jobs", ImportJobViewSet, basename="import-job")
 
 # Explicit endpoints
 urlpatterns = [
@@ -37,6 +45,7 @@ urlpatterns = [
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("import/products/", import_products, name="import-products"),
     path("import/sales/", import_sales, name="import-sales"),
+    path("import/start/", ImportStartView.as_view(), name="import-start"),
     path("tools/stock-check/", stock_check_now, name="stock-check"),
     path("admin/summary/", admin_summary, name="dashboard-summary"),
     path("exports/sales", ExportSalesView.as_view(), name="export-sales"),

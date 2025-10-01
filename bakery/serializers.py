@@ -13,6 +13,8 @@ from .models import (
     Attendance,
     PayrollPeriod,
     PayrollEntry,
+    ImportPreset,
+    ImportJob,
 )
 from .models_audit import AuditLog
 
@@ -119,6 +121,53 @@ class PayrollEntrySerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return str(obj.employee) if obj.employee_id else ""
+
+
+class ImportPresetSerializer(serializers.ModelSerializer):
+    created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = ImportPreset
+        fields = [
+            "id",
+            "name",
+            "kind",
+            "outlet",
+            "mapping",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_by", "created_at", "updated_at"]
+
+
+class ImportJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImportJob
+        fields = [
+            "id",
+            "kind",
+            "preset",
+            "file_name",
+            "status",
+            "errors",
+            "total_rows",
+            "processed_rows",
+            "created_at",
+            "finished_at",
+        ]
+        read_only_fields = [
+            "id",
+            "kind",
+            "preset",
+            "file_name",
+            "status",
+            "errors",
+            "total_rows",
+            "processed_rows",
+            "created_at",
+            "finished_at",
+        ]
 
 
 class SaleItemWriteSerializer(serializers.Serializer):

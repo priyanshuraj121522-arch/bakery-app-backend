@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 class Outlet(models.Model):
@@ -160,6 +161,58 @@ class PayrollEntry(models.Model):
 
     def __str__(self):
         return f"{self.period}: {self.employee}"
+
+
+class ImportPreset(models.Model):
+    KIND_PRODUCTS = "products"
+    KIND_SALES = "sales"
+    KIND_CHOICES = [
+        (KIND_PRODUCTS, "Products"),
+        (KIND_SALES, "Sales"),
+    ]
+
+    name = models.CharField(max_length=120)
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    outlet = models.ForeignKey(Outlet, null=True, blank=True, on_delete=models.SET_NULL, related_name="import_presets")
+    mapping = models.JSONField(default=dict)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="import_presets")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+
+    def __str__(self):
+        return self.name
+
+
+class ImportJob(models.Model):
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "Queued"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    kind = models.CharField(max_length=20, choices=ImportPreset.KIND_CHOICES)
+    preset = models.ForeignKey(ImportPreset, null=True, blank=True, on_delete=models.SET_NULL, related_name="jobs")
+    file_name = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    errors = models.JSONField(default=list)
+    total_rows = models.IntegerField(default=0)
+    processed_rows = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.kind} import {self.id}"
 
 # --- User ↔ Outlet link for access scoping ---
 from django.contrib.auth import get_user_model
