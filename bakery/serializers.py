@@ -2,7 +2,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from rest_framework import serializers
-from .models import Outlet, Product, Batch, Sale, SaleItem, StockLedger
+from .models import Outlet, Product, Batch, Sale, SaleItem, StockLedger, Employee, Attendance
 from .models_audit import AuditLog
 
 def money(x) -> Decimal:
@@ -22,6 +22,52 @@ class BatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Batch
         fields = "__all__"
+
+
+class EmployeeSerializer(serializers.ModelSerializer):
+    outlet_name = serializers.CharField(source="outlet.name", read_only=True)
+
+    class Meta:
+        model = Employee
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "phone",
+            "is_active",
+            "outlet",
+            "outlet_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+
+class AttendanceSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    outlet_id = serializers.IntegerField(source="employee.outlet_id", read_only=True)
+    outlet_name = serializers.CharField(source="employee.outlet.name", read_only=True)
+
+    class Meta:
+        model = Attendance
+        fields = [
+            "id",
+            "employee",
+            "employee_name",
+            "outlet_id",
+            "outlet_name",
+            "date",
+            "check_in",
+            "check_out",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_employee_name(self, obj):
+        return str(obj.employee) if obj.employee_id else ""
+
 
 class SaleItemWriteSerializer(serializers.Serializer):
     """Write-only serializer for nested line items when creating a Sale."""
@@ -170,4 +216,3 @@ class StockAlertRow(serializers.Serializer):
     outlet_name = serializers.CharField(allow_blank=True)
     qty_on_hand = serializers.FloatField()
     threshold = serializers.FloatField()
-

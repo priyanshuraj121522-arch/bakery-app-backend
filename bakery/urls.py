@@ -10,6 +10,7 @@ from .views import (
     me,
     health,
 )
+from .attendance_views import EmployeeViewSet, AttendanceViewSet
 from .admin_views import AuditLogViewSet, stock_check_now, admin_summary
 from .exports import ExportSalesView, ExportProductsView
 from .report_views import owner_summary
@@ -22,6 +23,8 @@ router.register("products", ProductViewSet)
 router.register("batches", BatchViewSet)
 router.register("sales", SaleViewSet, basename="sale")
 router.register("audit/logs", AuditLogViewSet, basename="audit-log")
+router.register("employees", EmployeeViewSet)
+router.register("attendance", AttendanceViewSet)
 
 # Explicit endpoints
 urlpatterns = [

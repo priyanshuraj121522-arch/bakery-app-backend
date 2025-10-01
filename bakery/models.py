@@ -91,6 +91,42 @@ class StockLedger(models.Model):
     ref_table = models.CharField(max_length=50)
     ref_id    = models.IntegerField()
     created_at= models.DateTimeField(auto_now_add=True)
+
+
+class Employee(models.Model):
+    first_name = models.CharField(max_length=120)
+    last_name = models.CharField(max_length=120, blank=True)
+    phone = models.CharField(max_length=20, unique=True)
+    is_active = models.BooleanField(default=True)
+    outlet = models.ForeignKey(Outlet, null=True, blank=True, on_delete=models.SET_NULL, related_name="employees")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["first_name", "last_name", "id"]
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+
+class Attendance(models.Model):
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="attendance_records")
+    date = models.DateField()
+    check_in = models.DateTimeField(null=True, blank=True)
+    check_out = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["employee", "date"], name="uniq_attendance_employee_date"),
+        ]
+        ordering = ["-date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} @ {self.date.isoformat()}"
+
 # --- User ↔ Outlet link for access scoping ---
 from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save
