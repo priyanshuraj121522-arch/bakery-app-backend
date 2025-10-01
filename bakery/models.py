@@ -127,6 +127,40 @@ class Attendance(models.Model):
     def __str__(self):
         return f"{self.employee} @ {self.date.isoformat()}"
 
+
+class PayrollPeriod(models.Model):
+    name = models.CharField(max_length=120)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    is_closed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-start_date", "name", "id"]
+
+    def __str__(self):
+        return f"{self.name} ({self.start_date} -> {self.end_date})"
+
+
+class PayrollEntry(models.Model):
+    period = models.ForeignKey(PayrollPeriod, on_delete=models.CASCADE, related_name="entries")
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="payroll_entries")
+    days_present = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    gross_pay = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["period", "employee"], name="uniq_payroll_period_employee"),
+        ]
+        ordering = ["-created_at", "employee_id"]
+
+    def __str__(self):
+        return f"{self.period}: {self.employee}"
+
 # --- User ↔ Outlet link for access scoping ---
 from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save

@@ -2,7 +2,18 @@
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from rest_framework import serializers
-from .models import Outlet, Product, Batch, Sale, SaleItem, StockLedger, Employee, Attendance
+from .models import (
+    Outlet,
+    Product,
+    Batch,
+    Sale,
+    SaleItem,
+    StockLedger,
+    Employee,
+    Attendance,
+    PayrollPeriod,
+    PayrollEntry,
+)
 from .models_audit import AuditLog
 
 def money(x) -> Decimal:
@@ -64,6 +75,47 @@ class AttendanceSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["created_at", "updated_at"]
+
+    def get_employee_name(self, obj):
+        return str(obj.employee) if obj.employee_id else ""
+
+
+class PayrollPeriodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PayrollPeriod
+        fields = [
+            "id",
+            "name",
+            "start_date",
+            "end_date",
+            "is_closed",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+
+class PayrollEntrySerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    outlet_id = serializers.IntegerField(source="employee.outlet_id", read_only=True)
+    outlet_name = serializers.CharField(source="employee.outlet.name", read_only=True)
+
+    class Meta:
+        model = PayrollEntry
+        fields = [
+            "id",
+            "period",
+            "employee",
+            "employee_name",
+            "outlet_id",
+            "outlet_name",
+            "days_present",
+            "gross_pay",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["days_present", "gross_pay", "created_at", "updated_at"]
 
     def get_employee_name(self, obj):
         return str(obj.employee) if obj.employee_id else ""

@@ -11,6 +11,7 @@ from .views import (
     health,
 )
 from .attendance_views import EmployeeViewSet, AttendanceViewSet
+from .payroll_views import PayrollEntryViewSet, PayrollCalculationView, PayrollPeriodViewSet
 from .admin_views import AuditLogViewSet, stock_check_now, admin_summary
 from .exports import ExportSalesView, ExportProductsView
 from .report_views import owner_summary
@@ -25,6 +26,8 @@ router.register("sales", SaleViewSet, basename="sale")
 router.register("audit/logs", AuditLogViewSet, basename="audit-log")
 router.register("employees", EmployeeViewSet)
 router.register("attendance", AttendanceViewSet)
+router.register("payroll/periods", PayrollPeriodViewSet)
+router.register("payroll/entries", PayrollEntryViewSet, basename="payroll-entry")
 
 # Explicit endpoints
 urlpatterns = [
@@ -38,4 +41,5 @@ urlpatterns = [
     path("admin/summary/", admin_summary, name="dashboard-summary"),
     path("exports/sales", ExportSalesView.as_view(), name="export-sales"),
     path("exports/products", ExportProductsView.as_view(), name="export-products"),
+    path("payroll/calc/", PayrollCalculationView.as_view(), name="payroll-calc"),
 ]
