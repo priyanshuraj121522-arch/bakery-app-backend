@@ -1,5 +1,12 @@
 # bakery/views.py
+from datetime import timedelta
+
+from django.apps import apps
 from django.db import connection
+from django.db.models import Sum, F
+from django.utils import timezone
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth
+
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -14,7 +21,6 @@ from .serializers import (
     BatchSerializer,
     SaleSerializer,
 )
-
 
 
 class BaseAuditedViewSet(viewsets.ModelViewSet):
@@ -72,7 +78,7 @@ class SaleViewSet(BaseAuditedViewSet):
     write_permission = IsCashierOrAbove
 
 
-# --- Simple utility endpoints ---
+# --- Simple utility endpoints -------------------------------------------------
 
 
 @api_view(["GET"])
@@ -110,6 +116,7 @@ def health(request):
     """Simple health check"""
     return Response({"status": "ok"})
 
+
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def health_db(request):
@@ -122,3 +129,123 @@ def health_db(request):
         return Response({"ok": False, "error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response({"ok": True})
 
+
+# --- Reports used by the dashboard -------------------------------------------
+
+def _parse_range(request):
+    """
+    Accepts:
+      from, to (ISO)  OR  days (int, default 30)
+    Returns (start_dt, end_dt) tz-aware.
+    """
+    tz = timezone.get_current_timezone()
+    q_from = request.query_params.get("from")
+    q_to = request.query_params.get("to")
+    q_days = request.query_params.get("days")
+
+    if q_from and q_to:
+        try:
+            start_raw = timezone.datetime.fromisoformat(q_from)
+            start = timezone.make_aware(start_raw) if start_raw.tzinfo is None else start_raw
+        except Exception:
+            start = timezone.now() - timedelta(days=30)
+        try:
+            end_raw = timezone.datetime.fromisoformat(q_to)
+            end = timezone.make_aware(end_raw) if end_raw.tzinfo is None else end_raw
+        except Exception:
+            end = timezone.now()
+    else:
+        try:
+            days = max(1, int(q_days or "30"))
+        except Exception:
+            days = 30
+        end = timezone.now()
+        start = end - timedelta(days=days)
+
+    if start > end:
+        start, end = end - timedelta(days=30), end
+    return start, end
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def reports_sales_trend(request):
+    """
+    GET /api/reports/sales-trend/?granularity=daily|weekly|monthly&from=...&to=...&days=30
+    Returns: [{ "date": "YYYY-MM-DD", "amount": 1234.56 }, ...]
+    """
+    granularity = (request.query_params.get("granularity") or "daily").lower()
+    start, end = _parse_range(request)
+
+    if granularity == "weekly":
+        trunc = TruncWeek("date")
+    elif granularity == "monthly":
+        trunc = TruncMonth("date")
+    else:
+        trunc = TruncDay("date")
+
+    qs = (
+        Sale.objects.filter(date__gte=start, date__lte=end)
+        .annotate(bucket=trunc)
+        .values("bucket")
+        .annotate(amount=Sum("total"))
+        .order_by("bucket")
+    )
+
+    data = [{"date": x["bucket"].date().isoformat(), "amount": float(x["amount"] or 0)} for x in qs]
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def reports_top_products(request):
+    """
+    GET /api/reports/top-products/?limit=5&from=...&to=...&days=30
+    Returns: [{ "name": "<Product>", "value": <revenue> }, ...]
+    """
+    try:
+        limit = max(1, int(request.query_params.get("limit", "5")))
+    except Exception:
+        limit = 5
+
+    start, end = _parse_range(request)
+
+    # Resolve SaleItem dynamically to avoid hard import errors
+    SaleItem = apps.get_model("bakery", "SaleItem")
+    if SaleItem is None:
+        return Response([], status=200)
+
+    amount_expr = F("line_total") if "line_total" in [f.name for f in SaleItem._meta.fields] else F("price") * F("quantity")
+
+    qs = (
+        SaleItem.objects.filter(sale__date__gte=start, sale__date__lte=end)
+        .values("product__name")
+        .annotate(value=Sum(amount_expr))
+        .order_by("-value")[:limit]
+    )
+    data = [{"name": x["product__name"], "value": float(x["value"] or 0)} for x in qs]
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def reports_top_outlets(request):
+    """
+    GET /api/reports/top-outlets/?limit=5&from=...&to=...&days=30
+    Returns: [{ "name": "<Outlet>", "value": <revenue> }, ...]
+    """
+    try:
+        limit = max(1, int(request.query_params.get("limit", "5")))
+    except Exception:
+        limit = 5
+
+    start, end = _parse_range(request)
+
+    qs = (
+        Sale.objects.filter(date__gte=start, date__lte=end)
+        .values("outlet__name")
+        .annotate(value=Sum("total"))
+        .order_by("-value")[:limit]
+    )
+    data = [{"name": x["outlet__name"] or "Unknown", "value": float(x["value"] or 0)} for x in qs]
+    return Response(data)
