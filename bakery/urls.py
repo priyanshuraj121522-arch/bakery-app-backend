@@ -11,16 +11,20 @@ from .views import (
     me,
     health,
     health_db,
-    # NEW report views:
-    reports_sales_trend,
-    reports_top_products,
-    reports_top_outlets,
 )
 from .attendance_views import EmployeeViewSet, AttendanceViewSet
 from .payroll_views import PayrollEntryViewSet, PayrollCalculationView, PayrollPeriodViewSet
 from .admin_views import AuditLogViewSet, stock_check_now, admin_summary
 from .exports import ExportSalesView, ExportProductsView
-from .report_views import owner_summary, cogs_report, gross_costs_summary, exec_summary
+from .report_views import (
+    owner_summary,
+    cogs_report,
+    gross_costs_summary,
+    exec_summary,
+    reports_sales_trend,
+    reports_top_products,
+    reports_top_outlets,
+)
 from .inventory_views import inventory_overview
 from .import_views import (
     import_products,
@@ -30,7 +34,6 @@ from .import_views import (
     ImportStartView,
 )
 
-# Routers for CRUD endpoints
 router = DefaultRouter()
 router.register("outlets", OutletViewSet)
 router.register("products", ProductViewSet)
@@ -44,41 +47,38 @@ router.register("payroll/entries", PayrollEntryViewSet, basename="payroll-entry"
 router.register("import/presets", ImportPresetViewSet, basename="import-preset")
 router.register("import/jobs", ImportJobViewSet, basename="import-job")
 
-# Explicit endpoints
 urlpatterns = [
     path("", include(router.urls)),
 
     # Auth & health
     path("auth/login/", login_flexible, name="api-login"),
     path("auth/refresh/", refresh_view, name="api-auth-refresh"),
-    path("health/", health, name="health"),          # /api/health/
+    path("health/", health, name="health"),
     path("health/db/", health_db, name="health-db"),
 
-    # Me
-    path("me/", me, name="me"),                      # /api/me/
+    # User info
+    path("me/", me, name="me"),
 
-    # Reports (existing)
+    # Dashboard data
     path("reports/owner-summary/", owner_summary, name="owner-summary"),
     path("reports/exec-summary/", exec_summary, name="exec-summary"),
-    path("reports/cogs/", cogs_report, name="cogs-report"),
-    path("reports/gross-costs/", gross_costs_summary, name="gross-costs"),
-
-    # Reports (NEW for dashboard)
     path("reports/sales-trend/", reports_sales_trend, name="reports-sales-trend"),
     path("reports/top-products/", reports_top_products, name="reports-top-products"),
     path("reports/top-outlets/", reports_top_outlets, name="reports-top-outlets"),
 
-    # Inventory
+    # Financial & inventory
+    path("reports/cogs/", cogs_report, name="cogs-report"),
+    path("reports/gross-costs/", gross_costs_summary, name="gross-costs"),
     path("inventory/overview/", inventory_overview, name="inventory-overview"),
 
-    # Import / Export
+    # Import/Export
     path("import/products/", import_products, name="import-products"),
     path("import/sales/", import_sales, name="import-sales"),
     path("import/start/", ImportStartView.as_view(), name="import-start"),
     path("exports/sales", ExportSalesView.as_view(), name="export-sales"),
     path("exports/products", ExportProductsView.as_view(), name="export-products"),
 
-    # Tools / Admin
+    # Tools/Admin
     path("tools/stock-check/", stock_check_now, name="stock-check"),
     path("admin/summary/", admin_summary, name="dashboard-summary"),
 
