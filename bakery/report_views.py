@@ -180,11 +180,10 @@ def owner_summary(request):
     top_products_qs = (
         SaleItem.objects
         .filter(sale__billed_at__date__gte=window_start, sale__billed_at__date__lte=today)
-        .annotate(_line_revenue=line_revenue)
         .values("product_id", "product__name")
         .annotate(
             qty=Coalesce(Sum("qty"), Decimal("0")),
-            revenue=Coalesce(Sum("_line_revenue"), Decimal("0")),
+            revenue=Coalesce(Sum(line_revenue), Decimal("0")),
         )
         .order_by("-revenue")[:5]
     )
