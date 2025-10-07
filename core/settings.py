@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     "bakery",
 ]
 # --- UPLOAD UPGRADE START ---
-INSTALLED_APPS.append("django_rq")
+INSTALLED_APPS.append("django_q")
 # --- UPLOAD UPGRADE END ---
 
 # --- Middleware (CORS should be near the top) ---
@@ -292,3 +292,13 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
     X_FRAME_OPTIONS = "DENY"
+
+Q_CLUSTER = {
+    "name": "bakery",
+    "workers": 2,
+    "timeout": 90,
+    "retry": 120,
+    "queue_limit": 50,
+    "bulk": 10,
+    "orm": "default",
+}
