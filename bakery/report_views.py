@@ -143,6 +143,8 @@ def owner_summary(request):
     Owner-style rollup used by older tiles: returns strings for currency fields
     (backward-compatible with any UI that expects strings).
     """
+    from django.db.models import Cast
+
     today = timezone.localdate()
     window_start = today - timedelta(days=29)
 
@@ -165,14 +167,28 @@ def owner_summary(request):
     )
     sales_by_day = [{"date": str(row["day"]), "total": money(row["total"])} for row in sales_by_day_qs]
 
-    line_revenue = _line_revenue_expr()
+    line_revenue = ExpressionWrapper(
+        Cast(F("qty"), DecimalField(max_digits=18, decimal_places=6))
+        * Cast(F("unit_price"), DecimalField(max_digits=18, decimal_places=6))
+        * (
+            Value(Decimal("1"))
+            + Cast(F("tax_pct"), DecimalField(max_digits=6, decimal_places=4)) / Value(Decimal("100"))
+        ),
+        output_field=DecimalField(max_digits=18, decimal_places=2),
+    )
 
     top_products_qs = (
-        SaleItem.objects.filter(sale__billed_at__date__gte=window_start, sale__billed_at__date__lte=today)
+        SaleItem.objects
+        .filter(sale__billed_at__date__gte=window_start, sale__billed_at__date__lte=today)
+        .annotate(_line_revenue=line_revenue)
         .values("product_id", "product__name")
-        .annotate(qty=Coalesce(Sum("qty"), 0), revenue=Coalesce(Sum(line_revenue), Decimal("0")))
+        .annotate(
+            qty=Coalesce(Sum("qty"), Decimal("0")),
+            revenue=Coalesce(Sum("_line_revenue"), Decimal("0")),
+        )
         .order_by("-revenue")[:5]
     )
+
     top_products = [
         {
             "product_id": row["product_id"],
