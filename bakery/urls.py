@@ -33,7 +33,7 @@ from .import_views import (
     ImportJobViewSet,
     ImportStartView,
 )
-from .upload_views import upload_data
+from .upload_views import upload_data, upload_status
 
 router = DefaultRouter()
 router.register("outlets", OutletViewSet)
@@ -86,4 +86,5 @@ urlpatterns = [
     # Payroll
     path("payroll/calc/", PayrollCalculationView.as_view(), name="payroll-calc"),
     path("upload-data/", upload_data, name="upload-data"),
+    path("upload-status/<int:pk>/", upload_status, name="upload-status"),
 ]

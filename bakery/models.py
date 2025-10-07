@@ -258,6 +258,30 @@ class ImportJob(models.Model):
     def __str__(self):
         return f"{self.kind} import {self.id}"
 
+# --- UPLOAD UPGRADE START ---
+class UploadTask(models.Model):
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "Queued"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    filename = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"UploadTask({self.pk}, {self.filename}, {self.status})"
+# --- UPLOAD UPGRADE END ---
+
 # --- User ↔ Outlet link for access scoping ---
 from django.contrib.auth import get_user_model
 from django.db.models.signals import post_save

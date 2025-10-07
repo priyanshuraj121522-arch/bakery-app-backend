@@ -42,6 +42,9 @@ INSTALLED_APPS = [
     # Local apps
     "bakery",
 ]
+# --- UPLOAD UPGRADE START ---
+INSTALLED_APPS.append("django_rq")
+# --- UPLOAD UPGRADE END ---
 
 # --- Middleware (CORS should be near the top) ---
 MIDDLEWARE = [
@@ -118,6 +121,23 @@ else:
         }
     }
 # --- CACHE + RATE LIMIT END ---
+
+# --- UPLOAD UPGRADE START ---
+if REDIS_URL:
+    RQ_QUEUES = {
+        "default": {
+            "URL": REDIS_URL,
+            "DEFAULT_TIMEOUT": int(os.getenv("RQ_DEFAULT_TIMEOUT", "600")),
+        }
+    }
+else:
+    RQ_QUEUES = {
+        "default": {
+            "URL": os.getenv("RQ_FALLBACK_URL", "redis://127.0.0.1:6379/0"),
+            "DEFAULT_TIMEOUT": int(os.getenv("RQ_DEFAULT_TIMEOUT", "600")),
+        }
+    }
+# --- UPLOAD UPGRADE END ---
 
 # --- Password validation (defaults) ---
 AUTH_PASSWORD_VALIDATORS = [
