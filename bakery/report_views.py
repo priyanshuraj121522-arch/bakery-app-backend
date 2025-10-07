@@ -142,12 +142,13 @@ def owner_summary(request):
     """
     Owner-style rollup used by older tiles: returns strings for currency fields
     (backward-compatible with any UI that expects strings).
+    Implementation note: keep DB simple; do revenue math in Python to avoid
+    aggregate/ExpressionWrapper edge-cases on some DBs.
     """
-    from django.db.models import Cast
-
     today = timezone.localdate()
     window_start = today - timedelta(days=29)
 
+    # KPI totals
     sales_all_time = Sale.objects.aggregate(total=Sum("total"))["total"] or Decimal("0")
 
     sales_30d_qs = Sale.objects.filter(billed_at__date__gte=window_start, billed_at__date__lte=today)
@@ -167,36 +168,38 @@ def owner_summary(request):
     )
     sales_by_day = [{"date": str(row["day"]), "total": money(row["total"])} for row in sales_by_day_qs]
 
-    line_revenue = ExpressionWrapper(
-        Cast(F("qty"), DecimalField(max_digits=18, decimal_places=6))
-        * Cast(F("unit_price"), DecimalField(max_digits=18, decimal_places=6))
-        * (
-            Value(Decimal("1"))
-            + Cast(F("tax_pct"), DecimalField(max_digits=6, decimal_places=4)) / Value(Decimal("100"))
-        ),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
-
-    top_products_qs = (
-        SaleItem.objects
-        .filter(sale__billed_at__date__gte=window_start, sale__billed_at__date__lte=today)
-        .values("product_id", "product__name")
-        .annotate(
-            qty=Coalesce(Sum("qty"), Decimal("0")),
-            revenue=Coalesce(Sum(line_revenue), Decimal("0")),
+    # Top products — compute revenue per item in Python
+    per_product = {}
+    items_qs = (
+        SaleItem.objects.filter(
+            sale__billed_at__date__gte=window_start,
+            sale__billed_at__date__lte=today,
         )
-        .order_by("-revenue")[:5]
+        .select_related("product")
+        .values("product_id", "product__name", "qty", "unit_price", "tax_pct")
     )
 
-    top_products = [
-        {
-            "product_id": row["product_id"],
-            "name": row["product__name"],
-            "qty": float(row["qty"] or 0),
-            "revenue": money(row["revenue"]),
-        }
-        for row in top_products_qs
-    ]
+    for item in items_qs:
+        pid = item["product_id"]
+        name = item["product__name"] or "Unknown"
+        qty = Decimal(str(item["qty"] or 0))
+        price = Decimal(str(item["unit_price"] or 0))
+        tax_pct = Decimal(str(item["tax_pct"] or 0))
+        revenue = qty * price * (Decimal("1") + (tax_pct / Decimal("100")))
+        bucket = per_product.setdefault(pid, {"name": name, "qty": Decimal("0"), "revenue": Decimal("0")})
+        bucket["qty"] += qty
+        bucket["revenue"] += revenue
+
+    top_products = []
+    for pid, data in sorted(per_product.items(), key=lambda entry: entry[1]["revenue"], reverse=True)[:5]:
+        top_products.append(
+            {
+                "product_id": pid,
+                "name": data["name"],
+                "qty": float(data["qty"]),
+                "revenue": money(data["revenue"]),
+            }
+        )
 
     low_stock_qs = (
         StockLedger.objects.filter(batch__isnull=False)
