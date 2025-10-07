@@ -38,13 +38,11 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "django_extensions",
     "django_filters",
+    "django_q",
 
     # Local apps
     "bakery",
 ]
-# --- UPLOAD UPGRADE START ---
-INSTALLED_APPS.append("django_q2")
-# --- UPLOAD UPGRADE END ---
 
 # --- Middleware (CORS should be near the top) ---
 MIDDLEWARE = [
