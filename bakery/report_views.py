@@ -84,8 +84,13 @@ def reports_sales_trend(request):
     period = request.query_params.get("range", "30d")
     start, end, trunc = _dt_range(period)
 
+    # --- PERF UPGRADE START ---
+    sale_qs = Sale.objects.only("id", "billed_at", "total").filter(
+        billed_at__date__gte=start, billed_at__date__lte=end
+    )
+    # --- PERF UPGRADE END ---
     qs = (
-        Sale.objects.filter(billed_at__date__gte=start, billed_at__date__lte=end)
+        sale_qs
         .annotate(bucket=trunc("billed_at"))
         .values("bucket")
         .annotate(total=Coalesce(Sum("total"), Decimal("0.00")))
@@ -121,8 +126,15 @@ def reports_top_outlets(request):
     today = timezone.localdate()
     start = today - timedelta(days=29)
 
+    # --- PERF UPGRADE START ---
+    sales_base = (
+        Sale.objects.only("id", "billed_at", "total", "outlet_id")
+        .select_related("outlet")
+        .filter(billed_at__date__gte=start, billed_at__date__lte=today)
+    )
+    # --- PERF UPGRADE END ---
     qs = (
-        Sale.objects.filter(billed_at__date__gte=start, billed_at__date__lte=today)
+        sales_base
         .values("outlet__name")
         .annotate(total=Coalesce(Sum("total"), Decimal("0")))
         .order_by("-total")[:5]
@@ -149,16 +161,28 @@ def owner_summary(request):
     window_start = today - timedelta(days=29)
 
     # KPI totals
-    sales_all_time = Sale.objects.aggregate(total=Sum("total"))["total"] or Decimal("0")
+    # --- PERF UPGRADE START ---
+    sales_all_time = Sale.objects.only("total").aggregate(total=Sum("total"))["total"] or Decimal("0")
+    # --- PERF UPGRADE END ---
 
-    sales_30d_qs = Sale.objects.filter(billed_at__date__gte=window_start, billed_at__date__lte=today)
+    # --- PERF UPGRADE START ---
+    sales_30d_qs = (
+        Sale.objects.only("id", "billed_at", "total", "outlet_id")
+        .filter(billed_at__date__gte=window_start, billed_at__date__lte=today)
+    )
+    # --- PERF UPGRADE END ---
     sales_30d_total = sales_30d_qs.aggregate(total=Sum("total"))["total"] or Decimal("0")
     orders_30d = sales_30d_qs.count()
     avg_ticket_30d = sales_30d_total / orders_30d if orders_30d else Decimal("0")
 
+    # --- PERF UPGRADE START ---
     sales_today_total = (
-        Sale.objects.filter(billed_at__date=today).aggregate(total=Sum("total"))["total"] or Decimal("0")
+        Sale.objects.only("total")
+        .filter(billed_at__date=today)
+        .aggregate(total=Sum("total"))["total"]
+        or Decimal("0")
     )
+    # --- PERF UPGRADE END ---
 
     sales_by_day_qs = (
         sales_30d_qs.annotate(day=TruncDate("billed_at"))
@@ -243,6 +267,21 @@ def cogs_report(request):
     outlet_id = params.get("outlet_id")
 
     qs = CogsEntry.objects.select_related("sale_item", "sale_item__sale", "product", "outlet")
+    # --- PERF UPGRADE START ---
+    qs = qs.only(
+        "sale_item_id",
+        "qty",
+        "unit_cost",
+        "total_cost",
+        "method",
+        "product__id",
+        "product__name",
+        "outlet__id",
+        "outlet__name",
+        "sale_item__sale__id",
+        "sale_item__sale__billed_at",
+    )
+    # --- PERF UPGRADE END ---
     if date_from:
         qs = qs.filter(sale_item__sale__billed_at__date__gte=date_from)
     if date_to:
@@ -345,7 +384,17 @@ def exec_summary(request):
 
     limit = int(request.query_params.get("limit", "5"))
 
-    qs_sales = Sale.objects.filter(billed_at__date__gte=start, billed_at__date__lte=end)
+    # --- PERF UPGRADE START ---
+    qs_sales = (
+        Sale.objects.only("id", "billed_at", "total", "outlet_id")
+        .select_related("outlet")
+        .filter(billed_at__date__gte=start, billed_at__date__lte=end)
+    )
+    sale_items_qs = (
+        SaleItem.objects.filter(sale__in=qs_sales)
+        .only("qty", "unit_price", "tax_pct", "sale", "product", "product__name")
+    )
+    # --- PERF UPGRADE END ---
 
     # KPIs
     total_revenue = qs_sales.aggregate(v=Coalesce(Sum("total"), Decimal("0")))["v"] or Decimal("0")
@@ -372,7 +421,7 @@ def exec_summary(request):
     # Top products (revenue = qty*price*(1+tax))
     line_revenue = _line_revenue_expr()
     top_products_qs = (
-        SaleItem.objects.filter(sale__in=qs_sales)
+        sale_items_qs
         .values("product__name")
         .annotate(sales=Coalesce(Sum(line_revenue), Decimal("0")))
         .order_by("-sales")[:limit]
@@ -382,11 +431,21 @@ def exec_summary(request):
     # Very rough COGS estimate (optional)
     cogs_est = Decimal("0")
     try:
-        for it in SaleItem.objects.filter(sale__in=qs_sales).select_related("product"):
+        # --- PERF UPGRADE START ---
+        sale_items_for_cogs = sale_items_qs.select_related("product").only(
+            "qty",
+            "unit_price",
+            "tax_pct",
+            "product",
+            "product__id",
+            "product__mrp",
+        )
+        for it in sale_items_for_cogs:
             unit_cost = getattr(it.product, "approx_cost", None)
             if unit_cost is None:
                 unit_cost = Decimal(str(it.unit_price)) * Decimal("0.60")  # heuristic
             cogs_est += Decimal(unit_cost) * Decimal(str(it.qty))
+        # --- PERF UPGRADE END ---
     except Exception:
         pass
 
