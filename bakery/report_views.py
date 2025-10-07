@@ -11,6 +11,9 @@ from django.db.models import (
 )
 from django.db.models.functions import TruncDate, Coalesce, TruncDay, TruncWeek, TruncMonth, Cast
 from django.utils import timezone
+# --- CACHE + RATE LIMIT START ---
+from django.views.decorators.cache import cache_page
+# --- CACHE + RATE LIMIT END ---
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -148,6 +151,9 @@ def reports_top_outlets(request):
 # (kept intact to avoid breaking any existing screens)
 # =========================
 
+# --- CACHE + RATE LIMIT START ---
+@cache_page(60)
+# --- CACHE + RATE LIMIT END ---
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def owner_summary(request):
@@ -361,6 +367,9 @@ def gross_costs_summary(request):
     ],
     responses={200: dict},
 )
+# --- CACHE + RATE LIMIT START ---
+@cache_page(60)
+# --- CACHE + RATE LIMIT END ---
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def exec_summary(request):

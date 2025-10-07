@@ -97,6 +97,28 @@ else:
         }
     }
 
+# --- CACHE + RATE LIMIT START ---
+REDIS_URL = os.getenv("REDIS_URL")
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": True,
+            },
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "bakery-perf-cache",
+        }
+    }
+# --- CACHE + RATE LIMIT END ---
+
 # --- Password validation (defaults) ---
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -155,15 +177,14 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 20,
+    # --- CACHE + RATE LIMIT START ---
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.UserRateThrottle",
-        "rest_framework.throttling.AnonRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": os.getenv("THROTTLE_RATE_ANON", "50/min"),
-        "user": os.getenv("THROTTLE_RATE_USER", "200/min"),
-        "auth": os.getenv("THROTTLE_RATE_AUTH", "10/min"),
+        "user": os.getenv("THROTTLE_RATE_USER", "120/min"),
     },
+    # --- CACHE + RATE LIMIT END ---
 }
 
 SIMPLE_JWT = {
