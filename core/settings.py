@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     "bakery",
 ]
 # --- UPLOAD UPGRADE START ---
-INSTALLED_APPS.append("django_q")
+INSTALLED_APPS.append("django_q2")
 # --- UPLOAD UPGRADE END ---
 
 # --- Middleware (CORS should be near the top) ---
