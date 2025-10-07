@@ -4,8 +4,8 @@ from typing import Dict, List, Optional
 
 # --- UPLOAD UPGRADE START ---
 from django.shortcuts import get_object_or_404
-from django_rq import get_queue
-from rq import get_current_job
+from django_q.tasks import async_task, result
+from django_q.models import Task
 # --- UPLOAD UPGRADE END ---
 
 from rest_framework import status
@@ -68,6 +68,22 @@ def _parse_headers_and_rowcount(file_bytes: bytes, lowered_name: str):
             workbook.close()
         return headers, row_count
     raise ValueError("Unsupported file type")
+
+
+def _task_state(task_id: str):
+    res = result(task_id)
+    if res is not None:
+        return {"state": "SUCCESS", "result": res}
+    t = Task.objects.filter(id=task_id).only("success", "started", "stopped").first()
+    if not t:
+        return {"state": "PENDING"}
+    if t.success is True and t.stopped:
+        return {"state": "SUCCESS"}
+    if t.success is False and t.stopped:
+        return {"state": "FAILURE"}
+    if t.started and not t.stopped:
+        return {"state": "RUNNING"}
+    return {"state": "QUEUED"}
 
 
 @api_view(["POST"])
@@ -134,16 +150,15 @@ def upload_data(request):
         )
 
     task = UploadTask.objects.create(filename=name or "upload")
-    queue = get_queue("default")
 
     try:
-        queue.enqueue(
+        task_id = async_task(
             process_upload_task,
             task.pk,
             upload_type,
             file_bytes,
             name,
-            job_id=str(task.pk),
+            q_options={"task_id": str(task.pk)},
         )
     except Exception as exc:
         task.status = UploadTask.STATUS_FAILED
@@ -156,7 +171,7 @@ def upload_data(request):
     return Response(
         {
             "status": "queued",
-            "task_id": str(task.pk),
+            "task_id": str(task_id),
             "type": upload_type,
             "detail": "File accepted. Processing in background.",
         },
@@ -168,8 +183,6 @@ def upload_data(request):
 @permission_classes([IsAuthenticated])
 def upload_status(request, pk: int):
     task = get_object_or_404(UploadTask, pk=pk)
-    queue = get_queue("default")
-    job = queue.fetch_job(str(task.pk))
 
     payload: Dict[str, Optional[object]] = {
         "task_id": str(task.pk),
@@ -177,13 +190,15 @@ def upload_status(request, pk: int):
         "created_at": task.created_at.isoformat(),
     }
 
-    if job:
-        payload["job"] = job.get_status()
-        meta = job.meta or {}
-        for key in ("rows", "preview", "error", "type"):
-            if key in meta:
-                payload[key] = meta[key]
-        if job.is_failed and "error" not in payload:
+    state_info = _task_state(str(task.pk))
+    if state_info:
+        payload["job"] = state_info.get("state")
+        result_payload = state_info.get("result")
+        if isinstance(result_payload, dict):
+            for key in ("rows", "preview", "error", "type"):
+                if key in result_payload:
+                    payload[key] = result_payload[key]
+        if state_info.get("state") == "FAILURE" and "error" not in payload:
             payload["error"] = "Processing failed."
 
     return Response(payload, status=status.HTTP_200_OK)
@@ -199,7 +214,6 @@ def process_upload_task(task_id: int, upload_type: str, file_bytes: bytes, filen
 
     task.status = UploadTask.STATUS_RUNNING
     task.save(update_fields=["status"])
-    job = get_current_job()
 
     try:
         buffer = io.BytesIO(file_bytes)
@@ -221,20 +235,10 @@ def process_upload_task(task_id: int, upload_type: str, file_bytes: bytes, filen
 
         preview: Optional[List[Dict]] = df.head(3).to_dict(orient="records") if total_rows else []
 
-        if job:
-            if preview:
-                job.meta["preview"] = preview
-            job.meta["rows"] = total_rows
-            job.meta["type"] = upload_type
-            job.save()
-
         task.status = UploadTask.STATUS_DONE
         task.save(update_fields=["status"])
         return {"rows": total_rows, "preview": preview}
     except Exception as exc:
-        if job:
-            job.meta["error"] = str(exc)
-            job.save()
         task.status = UploadTask.STATUS_FAILED
         task.save(update_fields=["status"])
         raise
