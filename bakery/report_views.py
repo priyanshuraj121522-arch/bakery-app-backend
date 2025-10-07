@@ -9,7 +9,7 @@ from django.db.models import (
     Value,
     Count,
 )
-from django.db.models.functions import TruncDate, Coalesce, TruncDay, TruncWeek, TruncMonth
+from django.db.models.functions import TruncDate, Coalesce, TruncDay, TruncWeek, TruncMonth, Cast
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import api_view, permission_classes
@@ -63,6 +63,16 @@ def _dt_range(period: str):
     return start, today, trunc
 
 
+# Common revenue expression: CAST(qty) * CAST(unit_price) * (1 + tax_pct/100)
+def _line_revenue_expr():
+    return ExpressionWrapper(
+        Cast(F("qty"), DecimalField(max_digits=18, decimal_places=6))
+        * Cast(F("unit_price"), DecimalField(max_digits=18, decimal_places=6))
+        * (Value(Decimal("1")) + Cast(F("tax_pct"), DecimalField(max_digits=6, decimal_places=4)) / Value(Decimal("100"))),
+        output_field=DecimalField(max_digits=18, decimal_places=2),
+    )
+
+
 # =========================
 # NEW: Dashboard endpoints used by frontend tiles/lists
 # =========================
@@ -92,18 +102,12 @@ def reports_top_products(request):
     today = timezone.localdate()
     start = today - timedelta(days=29)
 
-    # ---------- FIX: per-row annotation then Sum('_line_revenue') ----------
-    line_revenue = ExpressionWrapper(
-        F("qty") * F("unit_price") * (Value(Decimal("1")) + F("tax_pct") / Value(Decimal("100"))),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
+    line_revenue = _line_revenue_expr()
 
     qs = (
-        SaleItem.objects
-        .filter(sale__billed_at__date__gte=start, sale__billed_at__date__lte=today)
-        .annotate(_line_revenue=line_revenue)
+        SaleItem.objects.filter(sale__billed_at__date__gte=start, sale__billed_at__date__lte=today)
         .values("product_id", "product__name")
-        .annotate(revenue=Coalesce(Sum("_line_revenue"), Decimal("0")))
+        .annotate(revenue=Coalesce(Sum(line_revenue), Decimal("0")))
         .order_by("-revenue")[:5]
     )
     data = [{"name": r["product__name"] or "Unknown", "value": float(r["revenue"] or 0)} for r in qs]
@@ -161,18 +165,12 @@ def owner_summary(request):
     )
     sales_by_day = [{"date": str(row["day"]), "total": money(row["total"])} for row in sales_by_day_qs]
 
-    # ---------- FIX: per-row annotation then aggregate ----------
-    line_revenue = ExpressionWrapper(
-        F("qty") * F("unit_price") * (Value(Decimal("1.00")) + F("tax_pct") / Value(Decimal("100.00"))),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
+    line_revenue = _line_revenue_expr()
 
     top_products_qs = (
-        SaleItem.objects
-        .filter(sale__billed_at__date__gte=window_start, sale__billed_at__date__lte=today)
-        .annotate(_line_revenue=line_revenue)
+        SaleItem.objects.filter(sale__billed_at__date__gte=window_start, sale__billed_at__date__lte=today)
         .values("product_id", "product__name")
-        .annotate(qty=Coalesce(Sum("qty"), Decimal("0")), revenue=Coalesce(Sum("_line_revenue"), Decimal("0")))
+        .annotate(qty=Coalesce(Sum("qty"), 0), revenue=Coalesce(Sum(line_revenue), Decimal("0")))
         .order_by("-revenue")[:5]
     )
     top_products = [
@@ -353,17 +351,12 @@ def exec_summary(request):
     )
     top_outlets = [{"name": r["outlet__name"] or "Unknown", "sales": float(r["sales"])} for r in top_outlets_qs]
 
-    # ---------- FIX: per-row annotation then Sum('_line_revenue') ----------
-    line_revenue = ExpressionWrapper(
-        F("qty") * F("unit_price") * (Value(Decimal("1")) + F("tax_pct") / Value(Decimal("100"))),
-        output_field=DecimalField(max_digits=18, decimal_places=2),
-    )
+    # Top products (revenue = qty*price*(1+tax))
+    line_revenue = _line_revenue_expr()
     top_products_qs = (
-        SaleItem.objects
-        .filter(sale__in=qs_sales)
-        .annotate(_line_revenue=line_revenue)
+        SaleItem.objects.filter(sale__in=qs_sales)
         .values("product__name")
-        .annotate(sales=Coalesce(Sum("_line_revenue"), Decimal("0")))
+        .annotate(sales=Coalesce(Sum(line_revenue), Decimal("0")))
         .order_by("-sales")[:limit]
     )
     top_products = [{"name": r["product__name"] or "Unknown", "sales": float(r["sales"])} for r in top_products_qs]
