@@ -24,6 +24,7 @@ from .report_views import (
     reports_sales_trend,
     reports_top_products,
     reports_top_outlets,
+    reports_revenue_vs_cogs,
 )
 from .inventory_views import inventory_overview
 from .import_views import (
@@ -66,6 +67,7 @@ urlpatterns = [
     path("reports/sales-trend/", reports_sales_trend, name="reports-sales-trend"),
     path("reports/top-products/", reports_top_products, name="reports-top-products"),
     path("reports/top-outlets/", reports_top_outlets, name="reports-top-outlets"),
+    path("reports/revenue-vs-cogs/", reports_revenue_vs_cogs, name="reports-revenue-vs-cogs"),
 
     # Financial & inventory
     path("reports/cogs/", cogs_report, name="cogs-report"),

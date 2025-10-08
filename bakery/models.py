@@ -13,6 +13,10 @@ class Ingredient(models.Model):
     name = models.CharField(max_length=120, unique=True)
     uom  = models.CharField(max_length=20, default="kg")
     min_stock = models.FloatField(default=0)
+    # COGS START
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    active = models.BooleanField(default=True)
+    # COGS END
     def __str__(self): return self.name
 
 class Product(models.Model):
@@ -29,6 +33,12 @@ class Recipe(models.Model):
     product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="recipe")
     yield_qty = models.FloatField(default=1)
     yield_uom = models.CharField(max_length=20, default="pcs")
+    # COGS START
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["product"], name="uniq_recipe_product_cogs"),
+        ]
+    # COGS END
 
 class RecipeItem(models.Model):
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name="items")
@@ -36,6 +46,10 @@ class RecipeItem(models.Model):
     qty_per_batch = models.FloatField()
     uom = models.CharField(max_length=20, default="kg")
     loss_pct = models.FloatField(default=0)
+    # COGS START
+    qty_per_unit = models.DecimalField(max_digits=12, decimal_places=4, default=0)
+    wastage_pct = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    # COGS END
 
 class Batch(models.Model):
     product = models.ForeignKey(Product, on_delete=models.PROTECT)

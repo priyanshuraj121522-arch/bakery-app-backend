@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import timedelta, datetime
+from collections import defaultdict
 
 from django.db.models import (
     Sum,
@@ -8,6 +9,7 @@ from django.db.models import (
     ExpressionWrapper,
     Value,
     Count,
+    Prefetch,
 )
 from django.db.models.functions import TruncDate, Coalesce, TruncDay, TruncWeek, TruncMonth, Cast
 from django.utils import timezone
@@ -19,7 +21,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Sale, SaleItem, StockLedger, CogsEntry, PayrollEntry, PayrollPeriod
+from .models import Sale, SaleItem, StockLedger, CogsEntry, PayrollEntry, PayrollPeriod, RecipeItem
 
 
 # =========================
@@ -476,3 +478,100 @@ def exec_summary(request):
             },
         }
     )
+
+
+# COGS START
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def reports_revenue_vs_cogs(request):
+    """Return revenue vs COGS grouped by granularity for the dashboard."""
+    granularity = (request.query_params.get("granularity") or "daily").lower()
+    try:
+        days = int(request.query_params.get("days", "30"))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+
+    end_date = timezone.localdate()
+    start_date = end_date - timedelta(days=days - 1)
+
+    recipe_items_prefetch = Prefetch(
+        "product__recipe__items",
+        queryset=RecipeItem.objects.select_related("ingredient").all(),
+    )
+    sale_items = (
+        SaleItem.objects.filter(
+            sale__billed_at__date__gte=start_date,
+            sale__billed_at__date__lte=end_date,
+        )
+        .select_related("sale", "product")
+        .prefetch_related(recipe_items_prefetch)
+    )
+
+    def as_decimal(value) -> Decimal:
+        if value is None:
+            return Decimal("0")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    def bucket_for(date_value):
+        if granularity == "weekly":
+            return date_value - timedelta(days=date_value.weekday())
+        if granularity == "monthly":
+            return date_value.replace(day=1)
+        return date_value
+
+    aggregates = defaultdict(lambda: {"revenue": Decimal("0"), "cogs": Decimal("0")})
+
+    for item in sale_items:
+        sale_date = item.sale.billed_at.date()
+        bucket = bucket_for(sale_date)
+
+        qty = as_decimal(item.qty)
+        unit_price = as_decimal(item.unit_price)
+        tax_pct = as_decimal(item.tax_pct)
+        revenue = qty * unit_price * (Decimal("1") + (tax_pct / Decimal("100")))
+
+        recipe = getattr(item.product, "recipe", None)
+        cogs_per_unit = Decimal("0")
+        if recipe:
+            for recipe_item in recipe.items.all():
+                ingredient = recipe_item.ingredient
+                qty_per_unit = as_decimal(recipe_item.qty_per_unit)
+                wastage_pct = as_decimal(recipe_item.wastage_pct)
+                unit_cost = as_decimal(getattr(ingredient, "unit_cost", None))
+                multiplier = Decimal("1") + (wastage_pct / Decimal("100"))
+                cogs_per_unit += qty_per_unit * multiplier * unit_cost
+
+        cogs_value = cogs_per_unit * qty
+
+        aggregates[bucket]["revenue"] += revenue
+        aggregates[bucket]["cogs"] += cogs_value
+
+    series = []
+    total_revenue = Decimal("0")
+    total_cogs = Decimal("0")
+    for date_key in sorted(aggregates.keys()):
+        revenue_value = aggregates[date_key]["revenue"]
+        cogs_value = aggregates[date_key]["cogs"]
+        total_revenue += revenue_value
+        total_cogs += cogs_value
+        series.append(
+            {
+                "date": date_key.isoformat(),
+                "revenue": money(revenue_value),
+                "cogs": money(cogs_value),
+            }
+        )
+
+    return Response(
+        {
+            "series": series,
+            "totals": {
+                "revenue": money(total_revenue),
+                "cogs": money(total_cogs),
+            },
+        }
+    )
+# COGS END
