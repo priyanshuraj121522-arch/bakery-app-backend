@@ -67,7 +67,8 @@ urlpatterns = [
     path("reports/sales-trend/", reports_sales_trend, name="reports-sales-trend"),
     path("reports/top-products/", reports_top_products, name="reports-top-products"),
     path("reports/top-outlets/", reports_top_outlets, name="reports-top-outlets"),
-    re_path(r"^(?:api/)?reports/revenue-vs-cogs/?$", reports_revenue_vs_cogs, name="reports-revenue-vs-cogs"),
+    re_path(r"^reports/revenue-vs-cogs/?$", reports_revenue_vs_cogs, name="reports-revenue-vs-cogs"),
+    re_path(r"^api/reports/revenue-vs-cogs/?$", reports_revenue_vs_cogs, name="reports-revenue-vs-cogs"),
 
     # Financial & inventory
     path("reports/cogs/", cogs_report, name="cogs-report"),
